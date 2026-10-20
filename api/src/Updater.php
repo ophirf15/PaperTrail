@@ -6,6 +6,8 @@ namespace PaperTrail;
 
 final class Updater
 {
+    public const GITHUB_REPO = 'ophirf15/papertrail';
+
     public const ALLOWED_HOSTS = [
         'api.github.com',
         'github.com',
@@ -50,9 +52,9 @@ final class Updater
 
     public static function check(): array
     {
-        $repo = env('PAPER_TRAIL_GITHUB_REPO');
+        $repo = self::GITHUB_REPO;
         $current = version();
-        if ($repo === null || !preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repo)) {
+        if (!preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repo)) {
             return ['configured' => false, 'current' => $current, 'update' => null];
         }
         $url = 'https://api.github.com/repos/' . $repo . '/releases/latest';
@@ -90,21 +92,21 @@ final class Updater
             'updateAvailable' => $tag !== '' && version_compare($tag, $current, '>'),
             'asset' => $asset,
             'notes' => substr(strip_tags((string) ($release['body'] ?? '')), 0, 500),
-            'applyEnabled' => env('PAPER_TRAIL_UPDATES_ENABLED') === 'true',
+            'applyEnabled' => $asset !== null,
         ];
     }
 
     public static function apply(string $confirmVersion): array
     {
-        if (env('PAPER_TRAIL_UPDATES_ENABLED') !== 'true') {
-            throw new HttpException(403, 'Updates are locked. Set PAPER_TRAIL_UPDATES_ENABLED=true on the server first.');
-        }
         $check = self::check();
+        if (empty($check['updateAvailable'])) {
+            throw new HttpException(400, 'This journal is already on the latest release.');
+        }
         if (empty($check['asset']['url'])) {
             throw new HttpException(404, 'No update package was published.');
         }
         if ($confirmVersion !== ($check['latest'] ?? '')) {
-            throw new HttpException(400, 'Type the new version to confirm the update.');
+            throw new HttpException(400, 'That is not the release that was just found.');
         }
         $url = (string) $check['asset']['url'];
         if (!self::isAllowedAssetUrl($url)) {
@@ -114,6 +116,11 @@ final class Updater
         $zipPath = self::download($url);
         $count = self::overlay($zipPath);
         @unlink($zipPath);
+        try {
+            Database::migrate();
+        } catch (\Throwable) {
+            throw new HttpException(500, 'The new files are in place, but the shelves could not be updated. A backup is in data/backups.');
+        }
         return ['updatedFiles' => $count, 'version' => $check['latest'], 'backup' => true];
     }
 

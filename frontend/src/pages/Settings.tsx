@@ -16,6 +16,7 @@ type UpdateInfo = {
   updateAvailable?: boolean
   notes?: string
   applyEnabled?: boolean
+  asset?: { name: string; url: string } | null
 }
 
 export function SettingsPage() {
@@ -32,6 +33,7 @@ export function SettingsPage() {
   const [policy, setPolicy] = useState('fill_empty')
   const [summary, setSummary] = useState<string>('')
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
+  const [installing, setInstalling] = useState(false)
   const [errors, setErrors] = useState<{ id: number; message: string; createdAt: string }[]>([])
   const year = new Date().getFullYear()
 
@@ -265,13 +267,42 @@ export function SettingsPage() {
           {update && (
             <p className="meta">
               Version {update.current || 'unknown'}
-              {update.configured ? '' : '. Add PAPER_TRAIL_GITHUB_REPO to check GitHub releases.'}
-              {update.updateAvailable ? ` A newer release, ${update.latest}, is available.` : update.configured ? ' You are on the latest release.' : ''}
+              {update.updateAvailable
+                ? ` A newer release, ${update.latest}, is ready. Installing keeps your library and password.`
+                : update.configured
+                  ? ' You are on the latest release.'
+                  : ''}
             </p>
           )}
-          <button type="button" className="btn secondary" onClick={() => void api<UpdateInfo>('/api/updates').then(setUpdate).then(() => toast('Checked for updates.'))}>
-            Check for updates
-          </button>
+          {update?.notes ? <p className="meta">{update.notes}</p> : null}
+          <div className="mini-progress">
+            <button type="button" className="btn secondary" disabled={installing} onClick={() => void api<UpdateInfo>('/api/updates').then(setUpdate).then(() => toast('Checked for updates.'))}>
+              Check for updates
+            </button>
+            {update?.updateAvailable && update.asset?.url ? (
+              <button
+                type="button"
+                className="btn"
+                disabled={installing}
+                onClick={() => {
+                  if (!update.latest || installing) return
+                  if (!window.confirm(`Install Paper Trail ${update.latest} now? Your library and password stay. This page reloads when it finishes.`)) return
+                  setInstalling(true)
+                  void api('/api/updates/apply', { method: 'POST', json: { version: update.latest } })
+                    .then(() => {
+                      toast('Updated. Reloading…')
+                      window.setTimeout(() => window.location.reload(), 800)
+                    })
+                    .catch((error: unknown) => {
+                      toast(error instanceof Error ? error.message : 'Could not install the update.')
+                      setInstalling(false)
+                    })
+                }}
+              >
+                {installing ? 'Installing…' : `Install ${update.latest}`}
+              </button>
+            ) : null}
+          </div>
         </section>
         <section className="panel">
           <h2>Recent errors</h2>

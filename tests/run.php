@@ -207,6 +207,7 @@ check(Updater::isAllowedAssetUrl('http://github.com/evil.zip') === false, 'plain
 check(Updater::isAllowedAssetUrl('https://evil.example/update.zip') === false, 'unknown hosts are rejected');
 check(Updater::preserved('.env') && Updater::preserved('data/paper-trail.sqlite') && !Updater::preserved('public/index.php'), 'updater preserve list');
 check(Updater::safeZipPath('../.env') === false, 'zip paths cannot climb out');
+check(Updater::GITHUB_REPO === 'ophirf15/papertrail', 'updater looks up ophirf15/papertrail');
 
 $timeline = call('GET', '/timeline', [], $token);
 check(count($timeline['body']) > 0, 'timeline has reading activity');

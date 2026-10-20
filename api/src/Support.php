@@ -227,9 +227,7 @@ function ensure_env_file(): void
         'PAPER_TRAIL_DB_NAME' => '',
         'PAPER_TRAIL_DB_USER' => '',
         'PAPER_TRAIL_DB_PASSWORD' => '',
-        'PAPER_TRAIL_GITHUB_REPO' => '',
         'GITHUB_TOKEN' => '',
-        'PAPER_TRAIL_UPDATES_ENABLED' => 'false',
     ]);
 }
 
@@ -264,9 +262,7 @@ function configure_database(array $input): void
         'PAPER_TRAIL_DB_USER' => $config['user'],
         'PAPER_TRAIL_DB_PASSWORD' => $config['password'],
         'PAPER_TRAIL_DB_PATH' => '',
-        'PAPER_TRAIL_GITHUB_REPO' => '',
         'GITHUB_TOKEN' => '',
-        'PAPER_TRAIL_UPDATES_ENABLED' => 'false',
     ]);
     try {
         Database::disconnect();
