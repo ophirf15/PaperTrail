@@ -22,6 +22,7 @@ final class Auth
             throw new HttpException(400, 'Please choose a display name.');
         }
         self::assertPassword($password);
+        ensure_env_file();
         if (!self::needsSetup()) {
             throw new HttpException(409, 'This journal already has an owner.');
         }

@@ -19,6 +19,7 @@ export default function App() {
           <ErrorBoundary>
             <Routes>
               <Route path="/setup" element={<SetupPage />} />
+              <Route path="/install" element={<SetupPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route element={<Protected />}>
                 <Route index element={<HomePage />} />
@@ -39,8 +40,9 @@ export default function App() {
 }
 
 function Protected() {
-  const { user, loading } = useAuth()
+  const { user, loading, needsSetup } = useAuth()
   if (loading) return <p className="page meta">Opening the journal…</p>
+  if (!user && needsSetup) return <Navigate to="/setup" replace />
   if (!user) return <Navigate to="/login" replace />
   return (
     <LibraryProvider>

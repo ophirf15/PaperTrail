@@ -35,7 +35,7 @@ php scripts/reset-password.php "a new password"
 npm run build
 ```
 
-Point the site's document root at `public/`. Requests are handled by `public/index.php`. Keep `data/` writable and outside public downloads if your host allows it. Copy `.env.example` to `.env` and set `APP_KEY`.
+A published release is a zip you extract in the site's document root. Open the site and finish setup on the installer page. It creates `.env` and a SQLite database at `data/paper-trail.sqlite`. The site folder needs to be writable by PHP, and PHP needs the SQLite extension. Nothing has to be moved into another folder.
 
 To check GitHub releases from Settings, set `PAPER_TRAIL_GITHUB_REPO` to `owner/repo`. Applying an update also requires `PAPER_TRAIL_UPDATES_ENABLED=true`. Downloads are limited to GitHub hosts, and the database plus `.env` are left in place. A database copy is written to `data/backups/` before an update is applied.
 

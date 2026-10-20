@@ -18,7 +18,12 @@ require __DIR__ . '/Updater.php';
 require __DIR__ . '/dispatch.php';
 
 load_env_file(Database::root() . DIRECTORY_SEPARATOR . '.env');
-Database::migrate();
+try {
+    Database::migrate();
+} catch (\Throwable $e) {
+    render_startup_failure($e);
+    exit;
+}
 
 set_exception_handler(static function (\Throwable $e): void {
     if ($e instanceof HttpException) {

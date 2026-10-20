@@ -46,6 +46,8 @@ check($health['status'] === 200 && $health['body']['ok'] === true, 'health');
 
 $setupStatus = call('GET', '/setup-status');
 check($setupStatus['body']['needsSetup'] === true, 'needs setup');
+$install = call('GET', '/install-status');
+check($install['status'] === 200 && $install['body']['ready'] === true && $install['body']['needsSetup'] === true, 'install status describes a fresh library');
 
 $denied = call('GET', '/me');
 check($denied['status'] === 401, 'me requires a session');

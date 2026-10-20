@@ -149,6 +149,100 @@ function load_env_file(string $path): void
     }
 }
 
+function ensure_env_file(): void
+{
+    if (env('PAPER_TRAIL_DB_PATH') !== null) {
+        return;
+    }
+    $path = Database::root() . DIRECTORY_SEPARATOR . '.env';
+    if (is_file($path)) {
+        return;
+    }
+    $body = "APP_KEY=" . bin2hex(random_bytes(32)) . "\n"
+        . "PAPER_TRAIL_DB_PATH=\n"
+        . "PAPER_TRAIL_GITHUB_REPO=\n"
+        . "GITHUB_TOKEN=\n"
+        . "PAPER_TRAIL_UPDATES_ENABLED=false\n";
+    if (file_put_contents($path, $body) === false) {
+        throw new HttpException(500, 'The site folder is not writable, so .env could not be created.');
+    }
+    load_env_file($path);
+}
+
+function install_status(): array
+{
+    $phpOk = PHP_VERSION_ID >= 80100;
+    $sqlite = extension_loaded('pdo_sqlite');
+    $root = Database::root();
+    $data = $root . DIRECTORY_SEPARATOR . 'data';
+    $dataWritable = (is_dir($data) && is_writable($data)) || (!is_dir($data) && is_writable($root));
+    $needsSetup = false;
+    if ($phpOk && $sqlite && $dataWritable) {
+        try {
+            $needsSetup = Auth::needsSetup();
+        } catch (Throwable) {
+            $dataWritable = false;
+        }
+    }
+    return [
+        'needsSetup' => $needsSetup,
+        'php' => PHP_VERSION,
+        'phpOk' => $phpOk,
+        'sqlite' => $sqlite,
+        'dataWritable' => $dataWritable,
+        'ready' => $phpOk && $sqlite && $dataWritable,
+    ];
+}
+
+function render_startup_failure(Throwable $error): void
+{
+    $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $message = startup_message($error);
+    if (str_starts_with($uri, '/api')) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => $message]);
+        return;
+    }
+    http_response_code(500);
+    header('Content-Type: text/html; charset=utf-8');
+    $safe = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+    echo <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install Paper Trail</title>
+  <style>
+    body { margin: 0; background: #f3eee4; color: #2f2924; font: 18px/1.5 "Segoe UI", sans-serif; }
+    main { max-width: 36rem; margin: 12vh auto; padding: 0 1.2rem; }
+    h1 { font-family: Palatino, serif; font-weight: 600; font-size: 2.4rem; line-height: 1; }
+  </style>
+</head>
+<body>
+  <main>
+    <p>Paper Trail</p>
+    <h1>The installer cannot start yet.</h1>
+    <p>{$safe}</p>
+  </main>
+</body>
+</html>
+HTML;
+}
+
+function startup_message(Throwable $error): string
+{
+    $text = $error->getMessage();
+    if (str_contains($text, 'could not find driver') || str_contains($text, 'pdo_sqlite')) {
+        return 'Enable the PHP SQLite extension (pdo_sqlite), then reload this page.';
+    }
+    if (str_contains($text, 'data directory') || str_contains($text, 'database directory') || str_contains($text, 'not writable')) {
+        return 'Make this folder writable by PHP so data/ and .env can be created, then reload this page.';
+    }
+    return 'Something needed for the first run is missing. Check that PHP 8.1 and SQLite are enabled.';
+}
+
 function version(): string
 {
     $file = Database::root() . DIRECTORY_SEPARATOR . 'VERSION';

@@ -1,0 +1,18 @@
+# The domain root is this folder. The journal is served from public/.
+Options -Indexes
+DirectoryIndex public/index.php
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+
+RewriteRule ^data(?:/|$) - [F,L]
+RewriteRule ^(?:frontend|tests|scripts|\.github)(?:/|$) - [F,L]
+RewriteRule ^\.(?!well-known(?:/|$)) - [F,L]
+
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^api/.+\.(?:php|sql|md)$ - [F,L]
+
+RewriteCond %{REQUEST_URI} !^/public/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ public/index.php [L]
+</IfModule>

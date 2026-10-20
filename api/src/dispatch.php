@@ -17,6 +17,9 @@ function dispatch(string $method, string $path, array $body = [], array $query =
     if ($method === 'GET' && $path === '/setup-status') {
         return ok(['needsSetup' => Auth::needsSetup()]);
     }
+    if ($method === 'GET' && $path === '/install-status') {
+        return ok(install_status());
+    }
     if ($method === 'POST' && $path === '/setup') {
         $result = Auth::setup((string) ($body['displayName'] ?? ''), (string) ($body['password'] ?? ''), $userAgent);
         return ok(['user' => $result['user'], 'settings' => settings_get()], 201, $result['token']);
