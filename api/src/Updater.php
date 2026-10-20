@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace PaperTrail;
 
+use PDO;
+
 final class Updater
 {
     public const GITHUB_REPO = 'ophirf15/papertrail';
