@@ -209,10 +209,10 @@ final class Journal
             if ($target < 1 || $target > 500) {
                 throw new HttpException(400, 'Set a goal between 1 and 500 books.');
             }
-            $pdo->prepare(
+            $pdo->prepare(adapt_sql(
                 'INSERT INTO reading_goals (year, target_count) VALUES (?, ?)
                  ON CONFLICT(year) DO UPDATE SET target_count = excluded.target_count'
-            )->execute([$year, $target]);
+            ))->execute([$year, $target]);
         }
         $stmt = $pdo->prepare('SELECT year, target_count, celebrated_at FROM reading_goals WHERE year = ?');
         $stmt->execute([$year]);

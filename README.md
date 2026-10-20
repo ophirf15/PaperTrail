@@ -23,7 +23,7 @@ PHP 8.1 or newer is required, with SQLite enabled. The database is created at `d
 - Import a Goodreads CSV from Settings. Importing again will not duplicate books or erase journal notes.
 - Download a JSON backup or a CSV of the library from Settings. Sample books are optional and clearly marked.
 
-If you forget the password, from this folder run:
+Change the password from Settings. If you forget it, from this folder run:
 
 ```bash
 php scripts/reset-password.php "a new password"
@@ -35,7 +35,7 @@ php scripts/reset-password.php "a new password"
 npm run build
 ```
 
-A published release is a zip you extract in the site's document root. Open the site and finish setup on the installer page. It creates `.env` and a SQLite database at `data/paper-trail.sqlite`. The site folder needs to be writable by PHP, and PHP needs the SQLite extension. Nothing has to be moved into another folder.
+A published release is a zip you extract in the site's document root. Open the site and finish setup on the installer page. Choose MySQL and enter the host, database name, username, and password from the host. The installer writes `.env` and creates the tables there, so the library is not a file in the site folder. SQLite remains available for a private computer, as `data/paper-trail.sqlite`. The site folder still needs to be writable so `.env` can be saved. PHP needs the `pdo_mysql` extension for MySQL, or `pdo_sqlite` for the file.
 
 To check GitHub releases from Settings, set `PAPER_TRAIL_GITHUB_REPO` to `owner/repo`. Applying an update also requires `PAPER_TRAIL_UPDATES_ENABLED=true`. Downloads are limited to GitHub hosts, and the database plus `.env` are left in place. A database copy is written to `data/backups/` before an update is applied.
 

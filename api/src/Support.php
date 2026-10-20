@@ -35,14 +35,43 @@ final class Database
         return gmdate('Y-m-d');
     }
 
+    public static function driver(): string
+    {
+        return env('PAPER_TRAIL_DB_DRIVER') === 'mysql' ? 'mysql' : 'sqlite';
+    }
+
+    public static function disconnect(): void
+    {
+        self::$pdo = null;
+    }
+
     public static function pdo(): PDO
     {
         if (self::$pdo instanceof PDO) {
             return self::$pdo;
         }
 
+        if (self::driver() === 'mysql') {
+            $name = env('PAPER_TRAIL_DB_NAME');
+            if ($name === null) {
+                throw new RuntimeException('The MySQL database name is missing.');
+            }
+            self::$pdo = open_mysql(
+                env('PAPER_TRAIL_DB_HOST') ?? 'localhost',
+                (int) (env('PAPER_TRAIL_DB_PORT') ?? '3306'),
+                $name,
+                env('PAPER_TRAIL_DB_USER') ?? '',
+                env_raw('PAPER_TRAIL_DB_PASSWORD'),
+                false
+            );
+            return self::$pdo;
+        }
+
         $path = env('PAPER_TRAIL_DB_PATH');
         if ($path === null || $path === '') {
+            if (!database_configured()) {
+                throw new RuntimeException('The database has not been chosen yet.');
+            }
             $dir = self::root() . DIRECTORY_SEPARATOR . 'data';
             if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
                 throw new RuntimeException('Could not create the data directory.');
@@ -80,7 +109,12 @@ final class Database
     public static function migrate(?PDO $pdo = null): void
     {
         $pdo ??= self::pdo();
-        $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+        $mysql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        if ($mysql) {
+            $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(190) PRIMARY KEY, applied_at VARCHAR(40) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+        } else {
+            $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+        }
         $files = glob(dirname(__DIR__) . '/migrations/*.sql') ?: [];
         sort($files);
         $have = $pdo->query('SELECT version FROM schema_migrations')->fetchAll(PDO::FETCH_COLUMN);
@@ -92,6 +126,14 @@ final class Database
             $sql = file_get_contents($file);
             if ($sql === false) {
                 throw new RuntimeException('Could not read migration ' . $version);
+            }
+            if ($mysql) {
+                foreach (split_sql(mysql_migration_sql($sql)) as $statement) {
+                    $pdo->exec($statement);
+                }
+                $stmt = $pdo->prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)');
+                $stmt->execute([$version, self::now()]);
+                continue;
             }
             $pdo->beginTransaction();
             try {
@@ -111,9 +153,15 @@ final class Database
 
 function env(string $key): ?string
 {
+    $value = env_raw($key);
+    return $value === '' ? null : $value;
+}
+
+function env_raw(string $key): string
+{
     $value = $_ENV[$key] ?? getenv($key);
-    if ($value === false || $value === null || $value === '') {
-        return null;
+    if ($value === false || $value === null) {
+        return '';
     }
     return (string) $value;
 }
@@ -138,8 +186,10 @@ function load_env_file(string $path): void
         }
         $key = trim(substr($line, 0, $eq));
         $value = trim(substr($line, $eq + 1));
-        if ($value !== '' && ($value[0] === '"' || $value[0] === "'")) {
-            $value = trim($value, "\"'");
+        if ($value !== '' && $value[0] === '"' && str_ends_with($value, '"')) {
+            $value = stripcslashes(substr($value, 1, -1));
+        } elseif ($value !== '' && $value[0] === "'" && str_ends_with($value, "'")) {
+            $value = substr($value, 1, -1);
         }
         if ($key === '' || getenv($key) !== false) {
             continue;
@@ -149,48 +199,296 @@ function load_env_file(string $path): void
     }
 }
 
+function database_configured(): bool
+{
+    if (Database::driver() === 'mysql') {
+        return env('PAPER_TRAIL_DB_NAME') !== null && env('PAPER_TRAIL_DB_USER') !== null;
+    }
+    if (env('PAPER_TRAIL_DB_PATH') !== null) {
+        return true;
+    }
+    return is_file(Database::root() . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'paper-trail.sqlite');
+}
+
 function ensure_env_file(): void
 {
-    if (env('PAPER_TRAIL_DB_PATH') !== null) {
+    if (env('PAPER_TRAIL_DB_PATH') !== null || Database::driver() === 'mysql') {
         return;
+    }
+    if (is_file(Database::root() . DIRECTORY_SEPARATOR . '.env')) {
+        return;
+    }
+    write_env_file([
+        'APP_KEY' => bin2hex(random_bytes(32)),
+        'PAPER_TRAIL_DB_DRIVER' => 'sqlite',
+        'PAPER_TRAIL_DB_PATH' => '',
+        'PAPER_TRAIL_DB_HOST' => '',
+        'PAPER_TRAIL_DB_PORT' => '',
+        'PAPER_TRAIL_DB_NAME' => '',
+        'PAPER_TRAIL_DB_USER' => '',
+        'PAPER_TRAIL_DB_PASSWORD' => '',
+        'PAPER_TRAIL_GITHUB_REPO' => '',
+        'GITHUB_TOKEN' => '',
+        'PAPER_TRAIL_UPDATES_ENABLED' => 'false',
+    ]);
+}
+
+function configure_database(array $input): void
+{
+    $driver = (string) ($input['driver'] ?? 'sqlite');
+    if ($driver === 'sqlite') {
+        if (!extension_loaded('pdo_sqlite')) {
+            throw new HttpException(400, 'Enable the PHP SQLite extension (pdo_sqlite), or choose MySQL.');
+        }
+        ensure_env_file();
+        Database::disconnect();
+        Database::migrate();
+        return;
+    }
+    if ($driver !== 'mysql') {
+        throw new HttpException(400, 'Choose MySQL or a SQLite file.');
+    }
+    $config = mysql_config($input);
+    try {
+        open_mysql($config['host'], $config['port'], $config['name'], $config['user'], $config['password'], true);
+    } catch (PDOException $error) {
+        throw new HttpException(400, mysql_error_message($error));
     }
     $path = Database::root() . DIRECTORY_SEPARATOR . '.env';
-    if (is_file($path)) {
-        return;
+    write_env_file([
+        'APP_KEY' => bin2hex(random_bytes(32)),
+        'PAPER_TRAIL_DB_DRIVER' => 'mysql',
+        'PAPER_TRAIL_DB_HOST' => $config['host'],
+        'PAPER_TRAIL_DB_PORT' => (string) $config['port'],
+        'PAPER_TRAIL_DB_NAME' => $config['name'],
+        'PAPER_TRAIL_DB_USER' => $config['user'],
+        'PAPER_TRAIL_DB_PASSWORD' => $config['password'],
+        'PAPER_TRAIL_DB_PATH' => '',
+        'PAPER_TRAIL_GITHUB_REPO' => '',
+        'GITHUB_TOKEN' => '',
+        'PAPER_TRAIL_UPDATES_ENABLED' => 'false',
+    ]);
+    try {
+        Database::disconnect();
+        Database::migrate();
+    } catch (Throwable $error) {
+        if (is_file($path)) {
+            unlink($path);
+        }
+        clear_database_env();
+        Database::disconnect();
+        throw new HttpException(400, 'MySQL accepted the login, but the shelves could not be created.');
     }
-    $body = "APP_KEY=" . bin2hex(random_bytes(32)) . "\n"
-        . "PAPER_TRAIL_DB_PATH=\n"
-        . "PAPER_TRAIL_GITHUB_REPO=\n"
-        . "GITHUB_TOKEN=\n"
-        . "PAPER_TRAIL_UPDATES_ENABLED=false\n";
+}
+
+function mysql_config(array $input): array
+{
+    $host = trim((string) ($input['host'] ?? 'localhost'));
+    $port = (int) ($input['port'] ?? 3306);
+    $name = trim((string) ($input['name'] ?? ''));
+    $user = trim((string) ($input['user'] ?? ''));
+    $password = (string) ($input['password'] ?? '');
+    if ($host === '' || preg_match('/^[A-Za-z0-9._:-]+$/', $host) !== 1) {
+        throw new HttpException(400, 'Enter the MySQL host, such as localhost.');
+    }
+    if ($port < 1 || $port > 65535) {
+        throw new HttpException(400, 'Enter a MySQL port between 1 and 65535.');
+    }
+    if ($name === '' || preg_match('/^[A-Za-z0-9_-]+$/', $name) !== 1) {
+        throw new HttpException(400, 'Enter the MySQL database name using letters, numbers, and underscores.');
+    }
+    if ($user === '' || strlen($user) > 80 || preg_match('/^[A-Za-z0-9_@.%$-]+$/', $user) !== 1) {
+        throw new HttpException(400, 'Enter the MySQL username.');
+    }
+    if (str_contains($password, "\n") || str_contains($password, "\r")) {
+        throw new HttpException(400, 'The MySQL password cannot contain a line break.');
+    }
+    if (!extension_loaded('pdo_mysql')) {
+        throw new HttpException(400, 'Enable the PHP MySQL extension (pdo_mysql), then try again.');
+    }
+    return ['host' => $host, 'port' => $port, 'name' => $name, 'user' => $user, 'password' => $password];
+}
+
+function open_mysql(string $host, int $port, string $database, string $user, string $password, bool $createDatabase): PDO
+{
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ];
+    if (defined('PDO::MYSQL_ATTR_CONNECT_TIMEOUT')) {
+        $options[PDO::MYSQL_ATTR_CONNECT_TIMEOUT] = 5;
+    }
+    $dsn = 'mysql:host=' . $host . ';port=' . $port . ';dbname=' . $database . ';charset=utf8mb4';
+    try {
+        $pdo = new PDO($dsn, $user, $password, $options);
+    } catch (PDOException $error) {
+        $code = (int) ($error->errorInfo[1] ?? 0);
+        if (!$createDatabase || $code !== 1049) {
+            throw $error;
+        }
+        $server = new PDO('mysql:host=' . $host . ';port=' . $port . ';charset=utf8mb4', $user, $password, $options);
+        $server->exec('CREATE DATABASE ' . mysql_identifier($database) . ' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+        $pdo = new PDO($dsn, $user, $password, $options);
+    }
+    $pdo->exec('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+    return $pdo;
+}
+
+function mysql_identifier(string $name): string
+{
+    return '`' . str_replace('`', '``', $name) . '`';
+}
+
+function mysql_error_message(PDOException $error): string
+{
+    $code = (int) ($error->errorInfo[1] ?? 0);
+    if ($code === 1045) {
+        return 'MySQL refused that username or password.';
+    }
+    if ($code === 1044) {
+        return 'That MySQL user cannot use this database.';
+    }
+    if ($code === 1049) {
+        return 'That MySQL database does not exist, and it could not be created. Create it in the host panel, then try again.';
+    }
+    if ($code === 2002 || $code === 2003) {
+        return 'Could not reach MySQL. Check the host and port.';
+    }
+    return 'Could not connect to MySQL. Check the host, database, username, and password.';
+}
+
+function write_env_file(array $values): void
+{
+    $path = Database::root() . DIRECTORY_SEPARATOR . '.env';
+    $body = '';
+    foreach ($values as $key => $value) {
+        $body .= env_assignment((string) $key, (string) $value);
+    }
     if (file_put_contents($path, $body) === false) {
         throw new HttpException(500, 'The site folder is not writable, so .env could not be created.');
     }
     load_env_file($path);
 }
 
+function env_assignment(string $key, string $value): string
+{
+    if ($value === '' || preg_match('/^[A-Za-z0-9._\/:-]*$/', $value) === 1) {
+        return $key . '=' . $value . "\n";
+    }
+    return $key . '="' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . "\"\n";
+}
+
+function clear_database_env(): void
+{
+    foreach ([
+        'PAPER_TRAIL_DB_DRIVER',
+        'PAPER_TRAIL_DB_HOST',
+        'PAPER_TRAIL_DB_PORT',
+        'PAPER_TRAIL_DB_NAME',
+        'PAPER_TRAIL_DB_USER',
+        'PAPER_TRAIL_DB_PASSWORD',
+    ] as $key) {
+        putenv($key);
+        unset($_ENV[$key]);
+    }
+}
+
+function adapt_sql(string $sql): string
+{
+    if (Database::driver() !== 'mysql') {
+        return $sql;
+    }
+    $sql = str_replace(' COLLATE NOCASE', '', $sql);
+    $sql = str_replace('INSERT OR IGNORE', 'INSERT IGNORE', $sql);
+    $sql = str_replace(
+        'INSERT INTO settings (`key`, value) VALUES (?, ?) ON CONFLICT(`key`) DO UPDATE SET value = excluded.value',
+        'INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
+        $sql
+    );
+    $sql = str_replace(
+        'INSERT INTO tags (name, source) VALUES (?, ?) ON CONFLICT(name) DO NOTHING',
+        'INSERT IGNORE INTO tags (name, source) VALUES (?, ?)',
+        $sql
+    );
+    $sql = str_replace(
+        'ON CONFLICT(contact_id, book_id) DO UPDATE SET note = excluded.note, shared_at = COALESCE(excluded.shared_at, recommendations.shared_at), updated_at = excluded.updated_at',
+        'ON DUPLICATE KEY UPDATE note = VALUES(note), shared_at = COALESCE(VALUES(shared_at), shared_at), updated_at = VALUES(updated_at)',
+        $sql
+    );
+    $sql = str_replace(
+        'ON CONFLICT(year) DO UPDATE SET target_count = excluded.target_count',
+        'ON DUPLICATE KEY UPDATE target_count = VALUES(target_count)',
+        $sql
+    );
+    return $sql;
+}
+
+function mysql_migration_sql(string $sql): string
+{
+    $sql = str_replace('COLLATE NOCASE', '', $sql);
+    $sql = str_replace('abs(random()) % 3', 'FLOOR(RAND() * 3)', $sql);
+    $sql = str_replace(
+        'CREATE UNIQUE INDEX idx_books_goodreads ON books (goodreads_book_id) WHERE goodreads_book_id IS NOT NULL',
+        'CREATE UNIQUE INDEX idx_books_goodreads ON books (goodreads_book_id)',
+        $sql
+    );
+    $sql = preg_replace('/\bid INTEGER PRIMARY KEY\b/', 'id INTEGER PRIMARY KEY AUTO_INCREMENT', $sql) ?? $sql;
+    $sql = str_replace('token_hash TEXT NOT NULL UNIQUE', 'token_hash VARCHAR(64) NOT NULL UNIQUE', $sql);
+    $sql = str_replace('name TEXT NOT NULL UNIQUE', 'name VARCHAR(120) NOT NULL UNIQUE', $sql);
+    $sql = str_replace('token TEXT PRIMARY KEY', 'token VARCHAR(80) PRIMARY KEY', $sql);
+    $sql = str_replace('key TEXT PRIMARY KEY', '`key` VARCHAR(80) PRIMARY KEY', $sql);
+    $sql = str_replace('fingerprint TEXT NOT NULL', 'fingerprint VARCHAR(64) NOT NULL', $sql);
+    $sql = str_replace("TEXT NOT NULL DEFAULT '[]'", 'LONGTEXT NOT NULL', $sql);
+    $sql = str_replace("TEXT NOT NULL DEFAULT ''", 'LONGTEXT NOT NULL', $sql);
+    return $sql;
+}
+
+function split_sql(string $sql): array
+{
+    $parts = preg_split('/;\s*(?:\R|$)/', $sql) ?: [];
+    $statements = [];
+    foreach ($parts as $part) {
+        $part = trim($part);
+        if ($part !== '') {
+            $statements[] = $part;
+        }
+    }
+    return $statements;
+}
+
 function install_status(): array
 {
     $phpOk = PHP_VERSION_ID >= 80100;
     $sqlite = extension_loaded('pdo_sqlite');
+    $mysql = extension_loaded('pdo_mysql');
     $root = Database::root();
     $data = $root . DIRECTORY_SEPARATOR . 'data';
     $dataWritable = (is_dir($data) && is_writable($data)) || (!is_dir($data) && is_writable($root));
+    $configured = database_configured();
     $needsSetup = false;
-    if ($phpOk && $sqlite && $dataWritable) {
+    $ready = false;
+    if ($phpOk && $dataWritable && $configured) {
         try {
             $needsSetup = Auth::needsSetup();
+            $ready = true;
         } catch (Throwable) {
-            $dataWritable = false;
+            $ready = false;
         }
+    } elseif ($phpOk && $dataWritable && ($sqlite || $mysql)) {
+        $needsSetup = true;
+        $ready = true;
     }
     return [
         'needsSetup' => $needsSetup,
+        'configured' => $configured,
+        'driver' => $configured ? Database::driver() : null,
         'php' => PHP_VERSION,
         'phpOk' => $phpOk,
         'sqlite' => $sqlite,
+        'mysql' => $mysql,
         'dataWritable' => $dataWritable,
-        'ready' => $phpOk && $sqlite && $dataWritable,
+        'ready' => $ready,
     ];
 }
 
@@ -234,8 +532,11 @@ HTML;
 function startup_message(Throwable $error): string
 {
     $text = $error->getMessage();
-    if (str_contains($text, 'could not find driver') || str_contains($text, 'pdo_sqlite')) {
-        return 'Enable the PHP SQLite extension (pdo_sqlite), then reload this page.';
+    if (str_contains($text, 'could not find driver') || str_contains($text, 'pdo_sqlite') || str_contains($text, 'pdo_mysql')) {
+        return 'Enable the PHP database extension this site is using (pdo_mysql or pdo_sqlite), then reload this page.';
+    }
+    if (str_contains($text, 'Access denied') || str_contains($text, '[2002]') || str_contains($text, '[2003]')) {
+        return 'Could not reach MySQL. Check the host, database, username, and password in .env, then reload this page.';
     }
     if (str_contains($text, 'data directory') || str_contains($text, 'database directory') || str_contains($text, 'not writable')) {
         return 'Make this folder writable by PHP so data/ and .env can be created, then reload this page.';

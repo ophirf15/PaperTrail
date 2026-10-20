@@ -48,6 +48,27 @@ $setupStatus = call('GET', '/setup-status');
 check($setupStatus['body']['needsSetup'] === true, 'needs setup');
 $install = call('GET', '/install-status');
 check($install['status'] === 200 && $install['body']['ready'] === true && $install['body']['needsSetup'] === true, 'install status describes a fresh library');
+check($install['body']['configured'] === true && $install['body']['driver'] === 'sqlite', 'an existing file database is already configured');
+$schema = file_get_contents($root . '/api/migrations/001_init.sql');
+$translated = PaperTrail\mysql_migration_sql(is_string($schema) ? $schema : '');
+check(str_contains($translated, 'id INTEGER PRIMARY KEY AUTO_INCREMENT'), 'mysql keys increment');
+check(!str_contains($translated, 'year INTEGER PRIMARY KEY AUTO_INCREMENT'), 'mysql leaves the reading-goal year alone');
+check(!str_contains($translated, 'COLLATE NOCASE') && !str_contains($translated, 'WHERE goodreads_book_id IS NOT NULL'), 'mysql schema drops sqlite-only index syntax');
+check(str_contains($translated, '`key` VARCHAR(80) PRIMARY KEY'), 'mysql quotes the settings key');
+$variant = file_get_contents($root . '/api/migrations/004_decor_variant.sql');
+check(str_contains(PaperTrail\mysql_migration_sql(is_string($variant) ? $variant : ''), 'FLOOR(RAND() * 3)'), 'mysql decorations pick a variant');
+try {
+    PaperTrail\mysql_config(['host' => 'localhost', 'port' => 3306, 'name' => 'bad name', 'user' => 'reader', 'password' => 'secret']);
+    check(false, 'mysql names are checked');
+} catch (HttpException $exception) {
+    check($exception->status === 400, 'mysql names are checked');
+}
+putenv('PAPER_TRAIL_DB_DRIVER=mysql');
+$_ENV['PAPER_TRAIL_DB_DRIVER'] = 'mysql';
+$mysqlInsert = PaperTrail\adapt_sql('INSERT OR IGNORE INTO book_tags (book_id, tag_id) VALUES (?, ?)');
+putenv('PAPER_TRAIL_DB_DRIVER');
+unset($_ENV['PAPER_TRAIL_DB_DRIVER']);
+check(str_contains($mysqlInsert, 'INSERT IGNORE') && !str_contains($mysqlInsert, 'OR IGNORE'), 'mysql uses insert ignore');
 
 $denied = call('GET', '/me');
 check($denied['status'] === 401, 'me requires a session');
@@ -79,6 +100,24 @@ for ($i = 0; $i < 8; $i++) {
 }
 $throttled = call('POST', '/login', ['password' => 'library-key'], null, null, '10.9.9.9');
 check($throttled['status'] === 429, 'login is throttled');
+
+$guest = call('POST', '/password', ['current' => 'library-key', 'password' => 'new-library-key']);
+check($guest['status'] === 401, 'password change requires a session');
+$other = call('POST', '/login', ['password' => 'library-key'], null, null, '10.2.2.2');
+$wrong = call('POST', '/password', ['current' => 'nope', 'password' => 'new-library-key'], $token, null, '10.4.4.4');
+check($wrong['status'] === 400, 'password change needs the current password');
+$shortNext = call('POST', '/password', ['current' => 'library-key', 'password' => 'short'], $token);
+check($shortNext['status'] === 400, 'a new password must be at least 8 characters');
+$same = call('POST', '/password', ['current' => 'library-key', 'password' => 'library-key'], $token);
+check($same['status'] === 400, 'the new password must be different');
+$changed = call('POST', '/password', ['current' => 'library-key', 'password' => 'new-library-key'], $token);
+check($changed['status'] === 200, 'password can be changed');
+check(call('GET', '/me', [], $token)['status'] === 200, 'the current session stays signed in');
+check(call('GET', '/me', [], $other['token'])['status'] === 401, 'other sessions are signed out');
+$old = call('POST', '/login', ['password' => 'library-key'], null, null, '10.3.3.3');
+check($old['status'] === 401, 'the old password no longer works');
+$fresh = call('POST', '/login', ['password' => 'new-library-key'], null, null, '10.3.3.3');
+check($fresh['status'] === 200, 'the new password signs in');
 
 $created = call('POST', '/books', [
     'status' => 'reading',

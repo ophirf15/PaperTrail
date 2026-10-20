@@ -8,7 +8,7 @@ final class People
 {
     public static function list(): array
     {
-        $rows = Database::pdo()->query('SELECT * FROM contacts ORDER BY name COLLATE NOCASE')->fetchAll();
+        $rows = Database::pdo()->query(adapt_sql('SELECT * FROM contacts ORDER BY name COLLATE NOCASE'))->fetchAll();
         return array_map([self::class, 'present'], $rows);
     }
 
@@ -94,10 +94,10 @@ final class People
         $note = self::optional($input['note'] ?? null, 1000);
         $shared = !empty($input['shared']) ? Database::today() : null;
         $now = Database::now();
-        Database::pdo()->prepare(
+        Database::pdo()->prepare(adapt_sql(
             'INSERT INTO recommendations (contact_id, book_id, note, shared_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(contact_id, book_id) DO UPDATE SET note = excluded.note, shared_at = COALESCE(excluded.shared_at, recommendations.shared_at), updated_at = excluded.updated_at'
-        )->execute([$contactId, $bookId, $note, $shared, $now, $now]);
+        ))->execute([$contactId, $bookId, $note, $shared, $now, $now]);
         $row = Database::pdo()->prepare('SELECT id FROM recommendations WHERE contact_id = ? AND book_id = ?');
         $row->execute([$contactId, $bookId]);
         return ['id' => (int) $row->fetchColumn(), 'contactId' => $contactId, 'bookId' => $bookId, 'note' => $note, 'sharedAt' => $shared];

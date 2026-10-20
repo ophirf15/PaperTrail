@@ -38,7 +38,7 @@ final class Library
             'rating' => ' ORDER BY CASE WHEN e.rating IS NULL THEN 1 ELSE 0 END, e.rating DESC, b.title COLLATE NOCASE ASC',
             default => ' ORDER BY e.date_added DESC, b.id DESC',
         };
-        $stmt = Database::pdo()->prepare($sql);
+        $stmt = Database::pdo()->prepare(adapt_sql($sql));
         $stmt->execute($params);
         $rows = $stmt->fetchAll();
         $tags = self::tagsFor(array_map(static fn ($row) => (int) $row['id'], $rows));
@@ -587,12 +587,12 @@ final class Library
         if ($name === '' || strlen($name) > 80) {
             return;
         }
-        $pdo->prepare('INSERT INTO tags (name, source) VALUES (?, ?) ON CONFLICT(name) DO NOTHING')->execute([$name, $source]);
-        $stmt = $pdo->prepare('SELECT id FROM tags WHERE name = ? COLLATE NOCASE');
+        $pdo->prepare(adapt_sql('INSERT INTO tags (name, source) VALUES (?, ?) ON CONFLICT(name) DO NOTHING'))->execute([$name, $source]);
+        $stmt = $pdo->prepare(adapt_sql('SELECT id FROM tags WHERE name = ? COLLATE NOCASE'));
         $stmt->execute([$name]);
         $tagId = $stmt->fetchColumn();
         if ($tagId) {
-            $pdo->prepare('INSERT OR IGNORE INTO book_tags (book_id, tag_id) VALUES (?, ?)')->execute([$bookId, $tagId]);
+            $pdo->prepare(adapt_sql('INSERT OR IGNORE INTO book_tags (book_id, tag_id) VALUES (?, ?)'))->execute([$bookId, $tagId]);
         }
     }
 

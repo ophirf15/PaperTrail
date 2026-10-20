@@ -119,6 +119,10 @@ final class Updater
 
     private static function backupDatabase(): void
     {
+        if (Database::driver() === 'mysql') {
+            self::backupMysql();
+            return;
+        }
         $source = env('PAPER_TRAIL_DB_PATH') ?: Database::root() . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'paper-trail.sqlite';
         if (!is_file($source)) {
             return;
@@ -129,6 +133,41 @@ final class Updater
         }
         $dest = $dir . DIRECTORY_SEPARATOR . 'pre-update-' . gmdate('Ymd-His') . '.sqlite';
         if (!copy($source, $dest)) {
+            throw new HttpException(500, 'The pre-update backup could not be written. The update was not applied.');
+        }
+    }
+
+    private static function backupMysql(): void
+    {
+        $pdo = Database::pdo();
+        $dir = Database::root() . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'backups';
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new HttpException(500, 'The pre-update backup could not be written. The update was not applied.');
+        }
+        $dest = $dir . DIRECTORY_SEPARATOR . 'pre-update-' . gmdate('Ymd-His') . '.sql';
+        $dump = "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n";
+        $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($tables as $table) {
+            if (!is_string($table) || preg_match('/^[A-Za-z0-9_]+$/', $table) !== 1) {
+                continue;
+            }
+            $quoted = mysql_identifier($table);
+            $create = $pdo->query('SHOW CREATE TABLE ' . $quoted)->fetch();
+            if (!is_array($create) || !isset($create['Create Table'])) {
+                throw new HttpException(500, 'The pre-update backup could not be written. The update was not applied.');
+            }
+            $dump .= 'DROP TABLE IF EXISTS ' . $quoted . ";\n" . $create['Create Table'] . ";\n";
+            $rows = $pdo->query('SELECT * FROM ' . $quoted);
+            while ($row = $rows->fetch(PDO::FETCH_ASSOC)) {
+                $columns = array_map(mysql_identifier(...), array_keys($row));
+                $values = array_map(static function (mixed $value) use ($pdo): string {
+                    return $value === null ? 'NULL' : $pdo->quote((string) $value);
+                }, array_values($row));
+                $dump .= 'INSERT INTO ' . $quoted . ' (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ");\n";
+            }
+        }
+        $dump .= "SET FOREIGN_KEY_CHECKS=1;\n";
+        if (file_put_contents($dest, $dump) === false) {
             throw new HttpException(500, 'The pre-update backup could not be written. The update was not applied.');
         }
     }

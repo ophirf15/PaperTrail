@@ -21,7 +21,8 @@ function dispatch(string $method, string $path, array $body = [], array $query =
         return ok(install_status());
     }
     if ($method === 'POST' && $path === '/setup') {
-        $result = Auth::setup((string) ($body['displayName'] ?? ''), (string) ($body['password'] ?? ''), $userAgent);
+        $database = is_array($body['database'] ?? null) ? $body['database'] : [];
+        $result = Auth::setup((string) ($body['displayName'] ?? ''), (string) ($body['password'] ?? ''), $userAgent, $database);
         return ok(['user' => $result['user'], 'settings' => settings_get()], 201, $result['token']);
     }
     if ($method === 'POST' && $path === '/login') {
@@ -54,6 +55,10 @@ function dispatch(string $method, string $path, array $body = [], array $query =
     }
     if ($method === 'PUT' && $path === '/me') {
         return ok(['user' => Auth::updateDisplayName($user['id'], (string) ($body['displayName'] ?? ''))]);
+    }
+    if ($method === 'POST' && $path === '/password') {
+        Auth::changePassword($user['id'], (string) ($body['current'] ?? ''), (string) ($body['password'] ?? ''), $token, $ip);
+        return ok(['ok' => true]);
     }
     if ($method === 'GET' && $path === '/settings') {
         return ok(settings_get());

@@ -12,17 +12,24 @@ final class Auth
 
     public static function needsSetup(): bool
     {
+        if (!database_configured()) {
+            return true;
+        }
         return (int) Database::pdo()->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0;
     }
 
-    public static function setup(string $displayName, string $password, string $userAgent): array
+    public static function setup(string $displayName, string $password, string $userAgent, array $database = []): array
     {
         $displayName = trim($displayName);
         if ($displayName === '' || strlen($displayName) > 80) {
             throw new HttpException(400, 'Please choose a display name.');
         }
         self::assertPassword($password);
-        ensure_env_file();
+        if (!database_configured()) {
+            configure_database($database);
+        } else {
+            ensure_env_file();
+        }
         if (!self::needsSetup()) {
             throw new HttpException(409, 'This journal already has an owner.');
         }
@@ -39,7 +46,7 @@ final class Auth
 
     public static function login(string $password, string $ip, string $userAgent): array
     {
-        if (self::needsSetup()) {
+        if (!database_configured() || self::needsSetup()) {
             throw new HttpException(409, 'Set up your journal before signing in.');
         }
         self::assertNotThrottled($ip);
@@ -63,7 +70,7 @@ final class Auth
 
     public static function userFromToken(?string $token): ?array
     {
-        if ($token === null || $token === '') {
+        if ($token === null || $token === '' || !database_configured()) {
             return null;
         }
         $stmt = Database::pdo()->prepare(
@@ -96,6 +103,29 @@ final class Auth
         $stmt = Database::pdo()->prepare('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?');
         $stmt->execute([$displayName, Database::now(), $userId]);
         return self::publicUser($userId);
+    }
+
+    public static function changePassword(int $userId, string $current, string $next, ?string $token, string $ip): void
+    {
+        self::assertNotThrottled($ip);
+        $pdo = Database::pdo();
+        $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
+        $stmt->execute([$userId]);
+        $hash = $stmt->fetchColumn();
+        if (!is_string($hash) || !password_verify($current, $hash)) {
+            self::recordFailure($ip);
+            throw new HttpException(400, 'That password does not match.');
+        }
+        self::assertPassword($next);
+        if (password_verify($next, $hash)) {
+            throw new HttpException(400, 'Choose a different password.');
+        }
+        $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+            ->execute([password_hash($next, PASSWORD_DEFAULT), Database::now(), $userId]);
+        if ($token !== null && $token !== '') {
+            $pdo->prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND token_hash != ? AND revoked_at IS NULL')
+                ->execute([Database::now(), $userId, self::hashToken($token)]);
+        }
     }
 
     public static function resetPassword(string $password): void
@@ -167,7 +197,7 @@ final class Auth
 function settings_get(): array
 {
     $settings = ['theme' => 'light', 'shelfView' => 'shelf', 'shelfStyle' => 'mixed', 'shelfArrange' => 'free', 'shelfOrder' => ''];
-    $rows = Database::pdo()->query('SELECT key, value FROM settings')->fetchAll();
+    $rows = Database::pdo()->query('SELECT `key`, value FROM settings')->fetchAll();
     foreach ($rows as $row) {
         if ($row['key'] === 'theme' && in_array($row['value'], ['light', 'dark'], true)) {
             $settings['theme'] = $row['value'];
@@ -191,7 +221,7 @@ function settings_get(): array
 function settings_put(array $patch): array
 {
     $pdo = Database::pdo();
-    $stmt = $pdo->prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+    $stmt = $pdo->prepare(adapt_sql('INSERT INTO settings (`key`, value) VALUES (?, ?) ON CONFLICT(`key`) DO UPDATE SET value = excluded.value'));
     if (isset($patch['theme'])) {
         if (!in_array($patch['theme'], ['light', 'dark'], true)) {
             throw new HttpException(400, 'Choose the warm light or cozy dark theme.');

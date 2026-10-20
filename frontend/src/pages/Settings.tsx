@@ -19,10 +19,14 @@ type UpdateInfo = {
 }
 
 export function SettingsPage() {
-  const { user, settings, saveSettings, setDisplayName, logout } = useAuth()
+  const { user, settings, saveSettings, setDisplayName, changePassword, logout } = useAuth()
   const { refresh } = useLibrary()
   const toast = useToast()
   const [name, setName] = useState(user?.displayName ?? '')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [nextPassword, setNextPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
   const [goal, setGoal] = useState('24')
   const [preview, setPreview] = useState<Preview | null>(null)
   const [policy, setPolicy] = useState('fill_empty')
@@ -56,6 +60,45 @@ export function SettingsPage() {
             <input className="field" aria-label="Display name" value={name} onChange={(event) => setName(event.target.value)} />
             <button className="btn" type="submit">
               Save
+            </button>
+          </form>
+        </section>
+        <section className="panel">
+          <h2>Password</h2>
+          <form
+            className="settings-grid"
+            onSubmit={(event) => {
+              event.preventDefault()
+              setPasswordError('')
+              if (nextPassword !== confirmPassword) {
+                setPasswordError('The new passwords do not match.')
+                return
+              }
+              void changePassword(currentPassword, nextPassword)
+                .then(() => {
+                  setCurrentPassword('')
+                  setNextPassword('')
+                  setConfirmPassword('')
+                  toast('Password changed.')
+                })
+                .catch((caught: unknown) => setPasswordError(caught instanceof Error ? caught.message : 'Could not change the password.'))
+            }}
+          >
+            <label className="stack">
+              <span>Current password</span>
+              <input className="field" type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+            </label>
+            <label className="stack">
+              <span>New password</span>
+              <input className="field" type="password" autoComplete="new-password" minLength={8} required value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} />
+            </label>
+            <label className="stack">
+              <span>Confirm new password</span>
+              <input className="field" type="password" autoComplete="new-password" minLength={8} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+            </label>
+            {passwordError !== '' && <p style={{ color: 'var(--rose)' }}>{passwordError}</p>}
+            <button className="btn" type="submit">
+              Change password
             </button>
           </form>
         </section>

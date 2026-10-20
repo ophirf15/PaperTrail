@@ -3,15 +3,20 @@ import { api, ApiError, reportError } from './api'
 import type { Book, Settings, User } from './types'
 import { useToasts } from './ui'
 
+export type InstallDatabase =
+  | { driver: 'sqlite' }
+  | { driver: 'mysql'; host: string; port: number; name: string; user: string; password: string }
+
 type AuthValue = {
   user: User | null
   loading: boolean
   needsSetup: boolean
   settings: Settings
   login: (password: string) => Promise<void>
-  setup: (displayName: string, password: string) => Promise<void>
+  setup: (displayName: string, password: string, database?: InstallDatabase) => Promise<void>
   logout: () => Promise<void>
   setDisplayName: (displayName: string) => Promise<void>
+  changePassword: (current: string, password: string) => Promise<void>
   saveSettings: (patch: Partial<Settings>) => Promise<void>
 }
 
@@ -70,8 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await api<{ user: User; settings: Settings }>('/api/login', { method: 'POST', json: { password } })
         adopt(data.user, data.settings)
       },
-      async setup(displayName, password) {
-        const data = await api<{ user: User; settings: Settings }>('/api/setup', { method: 'POST', json: { displayName, password } })
+      async setup(displayName, password, database) {
+        const data = await api<{ user: User; settings: Settings }>('/api/setup', {
+          method: 'POST',
+          json: database ? { displayName, password, database } : { displayName, password },
+        })
         adopt(data.user, data.settings)
       },
       async logout() {
@@ -81,6 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async setDisplayName(displayName) {
         const data = await api<{ user: User }>('/api/me', { method: 'PUT', json: { displayName } })
         setUser(data.user)
+      },
+      async changePassword(current, password) {
+        await api('/api/password', { method: 'POST', json: { current, password } })
       },
       async saveSettings(patch) {
         const next = await api<Settings>('/api/settings', { method: 'PUT', json: patch })
