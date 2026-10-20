@@ -1,5 +1,5 @@
 import { Bold, Copy, Italic, List, ListOrdered, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Cover } from './covers'
 import { useLibrary, useToast } from './state'
@@ -88,7 +88,14 @@ export function BookModal({ bookId, initialTab, onClose }: { bookId: string | nu
               ))}
             </div>
             {tab === 'overview' && <Overview book={detail} onEntry={saveEntry} onMeta={setDetail} onRemove={() => { remove(detail.id); onClose() }} toast={toast} />}
-            {tab === 'journal' && <JournalPad key={detail.id} bookId={detail.id} initial={detail.journalHtml} />}
+            <div hidden={tab !== 'journal'}>
+              <JournalPad
+                key={detail.id}
+                bookId={detail.id}
+                initial={detail.journalHtml}
+                onSaved={(journalHtml) => setDetail((current) => (current ? { ...current, journalHtml } : current))}
+              />
+            </div>
             {tab === 'quotes' && <Quotes bookId={detail.id} initial={detail.quotes} toast={toast} />}
             {tab === 'share' && <Share bookId={detail.id} initial={detail.recommendations} toast={toast} />}
           </div>
@@ -272,38 +279,45 @@ function MetadataForm({ book, onMeta, toast }: { book: BookDetail; onMeta: (book
   )
 }
 
-function JournalPad({ bookId, initial }: { bookId: number; initial: string }) {
-  const [html, setHtml] = useState(initial)
-  const [state, setState] = useState<'saved' | 'saving' | 'unsaved'>('saved')
+function JournalPad({ bookId, initial, onSaved }: { bookId: number; initial: string; onSaved: (html: string) => void }) {
+  const toast = useToast()
+  const editorRef = useRef<HTMLDivElement>(null)
+  const [status, setStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
+  const [note, setNote] = useState('Saved.')
 
   useEffect(() => {
-    const node = document.getElementById(`journal-${bookId}`)
-    if (node) node.innerHTML = initial
-    setHtml(initial)
-    setState('saved')
-    // The editor owns later edits. Reset only when this book is opened.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId])
+    if (editorRef.current) editorRef.current.innerHTML = initial
+    setStatus('saved')
+    setNote(initial.trim() === '' ? 'Nothing saved yet.' : 'Saved.')
+  }, [bookId, initial])
 
-  useEffect(() => {
-    if (state !== 'unsaved') return
-    const timer = window.setTimeout(() => {
-      setState('saving')
-      api(`/api/books/${bookId}/journal`, { method: 'PUT', json: { bodyHtml: html } })
-        .then(() => setState('saved'))
-        .catch(() => setState('unsaved'))
-    }, 700)
-    return () => window.clearTimeout(timer)
-  }, [html, state, bookId])
+  function markDirty() {
+    setStatus('unsaved')
+    setNote('Not saved yet.')
+  }
 
   function format(command: 'bold' | 'italic' | 'insertUnorderedList' | 'insertOrderedList') {
     document.execCommand(command)
-    const node = document.getElementById(`journal-${bookId}`)
-    setHtml(node?.innerHTML ?? '')
-    setState('unsaved')
+    markDirty()
   }
 
-  const label = state === 'saving' ? 'Saving…' : state === 'unsaved' ? 'Unsaved' : 'Saved'
+  async function save() {
+    const html = editorRef.current?.innerHTML ?? ''
+    setStatus('saving')
+    setNote('Saving…')
+    try {
+      const saved = await api<{ journalHtml: string; savedAt: string }>(`/api/books/${bookId}/journal`, { method: 'PUT', json: { bodyHtml: html } })
+      onSaved(saved.journalHtml)
+      setStatus('saved')
+      setNote('Saved.')
+      toast('Journal saved.')
+    } catch (caught: unknown) {
+      const message = caught instanceof Error ? caught.message : 'The journal entry was not saved.'
+      setStatus('unsaved')
+      setNote(message)
+      toast(message)
+    }
+  }
 
   return (
     <div>
@@ -320,27 +334,28 @@ function JournalPad({ bookId, initial }: { bookId: number; initial: string }) {
         <button type="button" className="icon-btn" aria-label="Numbered list" data-tip="Numbers" onClick={() => format('insertOrderedList')}>
           <ListOrdered size={16} />
         </button>
+        <button type="button" className="btn" disabled={status === 'saving'} onClick={() => void save()}>
+          {status === 'saving' ? 'Saving…' : 'Save journal'}
+        </button>
       </div>
       <div
-        id={`journal-${bookId}`}
+        ref={editorRef}
         className="editor"
         contentEditable
         role="textbox"
         aria-multiline="true"
         aria-label="Journal"
         data-placeholder="What stayed with you?"
-        onInput={(event) => {
-          setHtml(event.currentTarget.innerHTML)
-          setState('unsaved')
-        }}
+        onInput={markDirty}
         onPaste={(event) => {
           event.preventDefault()
           const text = event.clipboardData.getData('text/plain')
           document.execCommand('insertText', false, text)
+          markDirty()
         }}
       />
       <p className="save-state" aria-live="polite">
-        {label}
+        {note}
       </p>
     </div>
   )

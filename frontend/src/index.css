@@ -361,7 +361,8 @@ label.stack { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.
   line-height: 1.4;
 }
 .editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
-.editor-bar { display: flex; gap: 0.25rem; margin-bottom: 0.45rem; }
+.editor-bar { display: flex; gap: 0.25rem; margin-bottom: 0.45rem; align-items: center; }
+.editor-bar .btn { margin-left: auto; }
 .save-state { color: var(--muted); font-size: 0.8rem; min-height: 1rem; }
 
 .quote-card {

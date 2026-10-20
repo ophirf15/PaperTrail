@@ -202,6 +202,8 @@ check($back['status'] === 200 && $back['body']['title'] === 'The Left Hand of Da
 
 $dirty = Html::sanitize('<img src=x onerror=alert(1)><p>Kept</p>');
 check($dirty === '<p>Kept</p>', 'html helper strips unexpected tags');
+$typed = call('PUT', "/books/{$bookId}/journal", ['bodyHtml' => '<div>A line from the editor.</div><div>And the next.</div>'], $token);
+check(str_contains($typed['body']['journalHtml'], 'A line from the editor.') && str_contains($typed['body']['journalHtml'], 'And the next.'), 'a typed journal page is stored');
 check(Updater::isAllowedAssetUrl('https://github.com/example/paper-trail/releases/download/v1/paper-trail-update.zip') === true, 'github release hosts are trusted');
 check(Updater::isAllowedAssetUrl('http://github.com/evil.zip') === false, 'plain http downloads are rejected');
 check(Updater::isAllowedAssetUrl('https://evil.example/update.zip') === false, 'unknown hosts are rejected');
