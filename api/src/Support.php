@@ -129,7 +129,7 @@ final class Database
             }
             if ($mysql) {
                 foreach (split_sql(mysql_migration_sql($sql)) as $statement) {
-                    $pdo->exec($statement);
+                    $pdo->exec(mysql_statement($statement));
                 }
                 $stmt = $pdo->prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)');
                 $stmt->execute([$version, self::now()]);
@@ -270,15 +270,90 @@ function configure_database(array $input): void
     ]);
     try {
         Database::disconnect();
-        Database::migrate();
+        install_mysql_tables();
     } catch (Throwable $error) {
+        try {
+            discard_empty_install_tables(Database::pdo());
+        } catch (Throwable) {
+            // The partial tables could not be removed. The message below still explains the failure.
+        }
         if (is_file($path)) {
             unlink($path);
         }
         clear_database_env();
         Database::disconnect();
-        throw new HttpException(400, 'MySQL accepted the login, but the shelves could not be created.');
+        throw new HttpException(400, 'MySQL accepted the login, but the shelves could not be created. ' . mysql_failure_detail($error));
     }
+}
+
+function install_mysql_tables(): void
+{
+    try {
+        Database::migrate();
+    } catch (Throwable) {
+        try {
+            discard_empty_install_tables(Database::pdo());
+        } catch (Throwable) {
+            // Dropping the half-built tables failed. The retry below reports the real error.
+        }
+        Database::disconnect();
+        Database::migrate();
+    }
+}
+
+function discard_empty_install_tables(PDO $pdo): void
+{
+    try {
+        $count = $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+        if ((int) $count > 0) {
+            return;
+        }
+    } catch (Throwable) {
+        // The owner table was never created, so the other shelf tables can be cleared.
+    }
+    $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+    foreach ([
+        'book_tags',
+        'tags',
+        'recommendations',
+        'contacts',
+        'quotes',
+        'journal_entries',
+        'reading_sessions',
+        'library_entries',
+        'books',
+        'login_attempts',
+        'sessions',
+        'users',
+        'reading_goals',
+        'import_staging',
+        'import_runs',
+        'settings',
+        'error_events',
+        'shelf_decorations',
+        'schema_migrations',
+    ] as $table) {
+        $pdo->exec('DROP TABLE IF EXISTS ' . mysql_identifier($table));
+    }
+    $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+}
+
+function mysql_failure_detail(Throwable $error): string
+{
+    $message = preg_replace('/using password:\s*\w+/i', 'using password: [hidden]', $error->getMessage()) ?? $error->getMessage();
+    $message = trim(preg_replace('/\s+/', ' ', $message) ?? $message);
+    if (strlen($message) > 280) {
+        $message = substr($message, 0, 277) . '...';
+    }
+    return $message !== '' ? $message : 'The database refused the shelf tables.';
+}
+
+function mysql_statement(string $statement): string
+{
+    if (preg_match('/^CREATE TABLE\b/i', $statement) === 1 && !str_contains($statement, 'ENGINE=')) {
+        return $statement . ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+    }
+    return $statement;
 }
 
 function mysql_config(array $input): array
@@ -439,6 +514,21 @@ function mysql_migration_sql(string $sql): string
     $sql = str_replace('token TEXT PRIMARY KEY', 'token VARCHAR(80) PRIMARY KEY', $sql);
     $sql = str_replace('key TEXT PRIMARY KEY', '`key` VARCHAR(80) PRIMARY KEY', $sql);
     $sql = str_replace('fingerprint TEXT NOT NULL', 'fingerprint VARCHAR(64) NOT NULL', $sql);
+    $sql = str_replace('ip TEXT NOT NULL', 'ip VARCHAR(45) NOT NULL', $sql);
+    $sql = str_replace('created_at TEXT NOT NULL', 'created_at VARCHAR(40) NOT NULL', $sql);
+    $sql = str_replace('date_finished TEXT', 'date_finished VARCHAR(40)', $sql);
+    $sql = str_replace(
+        "status TEXT NOT NULL CHECK (status IN ('want', 'reading', 'finished', 'dnf'))",
+        "status VARCHAR(20) NOT NULL CHECK (status IN ('want', 'reading', 'finished', 'dnf'))",
+        $sql
+    );
+    $sql = str_replace('isbn10 TEXT', 'isbn10 VARCHAR(20)', $sql);
+    $sql = str_replace('isbn13 TEXT', 'isbn13 VARCHAR(20)', $sql);
+    $sql = str_replace('open_library_work_key TEXT', 'open_library_work_key VARCHAR(80)', $sql);
+    $sql = str_replace('goodreads_book_id TEXT', 'goodreads_book_id VARCHAR(32)', $sql);
+    $sql = str_replace("source TEXT NOT NULL DEFAULT 'manual'", "source VARCHAR(40) NOT NULL DEFAULT 'manual'", $sql);
+    $sql = str_replace("source TEXT NOT NULL DEFAULT 'user'", "source VARCHAR(40) NOT NULL DEFAULT 'user'", $sql);
+    $sql = str_replace("kind TEXT NOT NULL DEFAULT 'journal'", "kind VARCHAR(40) NOT NULL DEFAULT 'journal'", $sql);
     $sql = str_replace("TEXT NOT NULL DEFAULT '[]'", 'LONGTEXT NOT NULL', $sql);
     $sql = str_replace("TEXT NOT NULL DEFAULT ''", 'LONGTEXT NOT NULL', $sql);
     return $sql;

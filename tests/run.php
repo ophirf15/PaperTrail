@@ -55,6 +55,9 @@ check(str_contains($translated, 'id INTEGER PRIMARY KEY AUTO_INCREMENT'), 'mysql
 check(!str_contains($translated, 'year INTEGER PRIMARY KEY AUTO_INCREMENT'), 'mysql leaves the reading-goal year alone');
 check(!str_contains($translated, 'COLLATE NOCASE') && !str_contains($translated, 'WHERE goodreads_book_id IS NOT NULL'), 'mysql schema drops sqlite-only index syntax');
 check(str_contains($translated, '`key` VARCHAR(80) PRIMARY KEY'), 'mysql quotes the settings key');
+check(str_contains($translated, 'isbn13 VARCHAR(20)') && str_contains($translated, 'goodreads_book_id VARCHAR(32)'), 'mysql indexes short book identifiers');
+check(str_contains($translated, 'ip VARCHAR(45)') && str_contains($translated, 'created_at VARCHAR(40)') && str_contains($translated, 'status VARCHAR(20)') && str_contains($translated, 'date_finished VARCHAR(40)'), 'mysql indexes short login and shelf columns');
+check(str_contains(PaperTrail\mysql_statement('CREATE TABLE books (id INTEGER PRIMARY KEY AUTO_INCREMENT)'), 'ENGINE=InnoDB'), 'mysql tables use InnoDB');
 $variant = file_get_contents($root . '/api/migrations/004_decor_variant.sql');
 check(str_contains(PaperTrail\mysql_migration_sql(is_string($variant) ? $variant : ''), 'FLOOR(RAND() * 3)'), 'mysql decorations pick a variant');
 try {
