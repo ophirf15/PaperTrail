@@ -1,5 +1,5 @@
-import { Bold, Copy, Italic, List, ListOrdered, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Copy, Trash2 } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { api } from './api'
 import { Cover } from './covers'
 import { useLibrary, useToast } from './state'
@@ -12,6 +12,7 @@ import {
   type Book,
   type BookDetail,
   type Contact,
+  type JournalEntry,
   type Quote,
   type ReadingStatus,
 } from './types'
@@ -89,12 +90,7 @@ export function BookModal({ bookId, initialTab, onClose }: { bookId: string | nu
             </div>
             {tab === 'overview' && <Overview book={detail} onEntry={saveEntry} onMeta={setDetail} onRemove={() => { remove(detail.id); onClose() }} toast={toast} />}
             <div hidden={tab !== 'journal'}>
-              <JournalPad
-                key={detail.id}
-                bookId={detail.id}
-                initial={detail.journalHtml}
-                onSaved={(journalHtml) => setDetail((current) => (current ? { ...current, journalHtml } : current))}
-              />
+              <JournalLog key={detail.id} bookId={detail.id} initial={detail.journalEntries ?? []} />
             </div>
             {tab === 'quotes' && <Quotes bookId={detail.id} initial={detail.quotes} toast={toast} />}
             {tab === 'share' && <Share bookId={detail.id} initial={detail.recommendations} toast={toast} />}
@@ -279,84 +275,132 @@ function MetadataForm({ book, onMeta, toast }: { book: BookDetail; onMeta: (book
   )
 }
 
-function JournalPad({ bookId, initial, onSaved }: { bookId: number; initial: string; onSaved: (html: string) => void }) {
+function JournalLog({ bookId, initial }: { bookId: number; initial: JournalEntry[] }) {
   const toast = useToast()
-  const editorRef = useRef<HTMLDivElement>(null)
-  const [status, setStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
-  const [note, setNote] = useState('Saved.')
+  const [entries, setEntries] = useState(initial)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [removeId, setRemoveId] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (editorRef.current) editorRef.current.innerHTML = initial
-    setStatus('saved')
-    setNote(initial.trim() === '' ? 'Nothing saved yet.' : 'Saved.')
-  }, [bookId, initial])
-
-  function markDirty() {
-    setStatus('unsaved')
-    setNote('Not saved yet.')
-  }
-
-  function format(command: 'bold' | 'italic' | 'insertUnorderedList' | 'insertOrderedList') {
-    document.execCommand(command)
-    markDirty()
-  }
-
-  async function save() {
-    const html = editorRef.current?.innerHTML ?? ''
-    setStatus('saving')
-    setNote('Saving…')
+  async function add(event: FormEvent) {
+    event.preventDefault()
+    const bodyHtml = paragraphs(draft)
+    if (bodyHtml === '') return
+    setSaving(true)
     try {
-      const saved = await api<{ journalHtml: string; savedAt: string }>(`/api/books/${bookId}/journal`, { method: 'PUT', json: { bodyHtml: html } })
-      onSaved(saved.journalHtml)
-      setStatus('saved')
-      setNote('Saved.')
-      toast('Journal saved.')
+      const saved = await api<JournalEntry>(`/api/books/${bookId}/notes`, { method: 'POST', json: { bodyHtml } })
+      setEntries((current) => [saved, ...current.filter((entry) => entry.id !== saved.id)])
+      setDraft('')
+      toast('Note added.')
     } catch (caught: unknown) {
-      const message = caught instanceof Error ? caught.message : 'The journal entry was not saved.'
-      setStatus('unsaved')
-      setNote(message)
-      toast(message)
+      toast(caught instanceof Error ? caught.message : 'The note was not saved.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function revise(entry: JournalEntry) {
+    const bodyHtml = paragraphs(editText)
+    if (bodyHtml === '') {
+      toast('Write a few words first.')
+      return
+    }
+    try {
+      const saved = await api<JournalEntry>(`/api/journal-entries/${entry.id}`, { method: 'PATCH', json: { bodyHtml } })
+      setEntries((current) => current.map((item) => (item.id === saved.id ? saved : item)))
+      setEditingId(null)
+      toast('Note updated.')
+    } catch (caught: unknown) {
+      toast(caught instanceof Error ? caught.message : 'The note was not updated.')
     }
   }
 
   return (
     <div>
-      <div className="editor-bar">
-        <button type="button" className="icon-btn" aria-label="Bold" data-tip="Bold" onClick={() => format('bold')}>
-          <Bold size={16} />
+      <form className="journal-compose" onSubmit={(event) => void add(event)}>
+        <label className="stack">
+          <span>A new note</span>
+          <textarea
+            className="area"
+            value={draft}
+            placeholder="What stayed with you this time?"
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        </label>
+        <button className="btn" type="submit" disabled={saving || draft.trim() === ''}>
+          {saving ? 'Adding…' : 'Add note'}
         </button>
-        <button type="button" className="icon-btn" aria-label="Italic" data-tip="Italic" onClick={() => format('italic')}>
-          <Italic size={16} />
-        </button>
-        <button type="button" className="icon-btn" aria-label="Bullet list" data-tip="Bullets" onClick={() => format('insertUnorderedList')}>
-          <List size={16} />
-        </button>
-        <button type="button" className="icon-btn" aria-label="Numbered list" data-tip="Numbers" onClick={() => format('insertOrderedList')}>
-          <ListOrdered size={16} />
-        </button>
-        <button type="button" className="btn" disabled={status === 'saving'} onClick={() => void save()}>
-          {status === 'saving' ? 'Saving…' : 'Save journal'}
-        </button>
-      </div>
-      <div
-        ref={editorRef}
-        className="editor"
-        contentEditable
-        role="textbox"
-        aria-multiline="true"
-        aria-label="Journal"
-        data-placeholder="What stayed with you?"
-        onInput={markDirty}
-        onPaste={(event) => {
-          event.preventDefault()
-          const text = event.clipboardData.getData('text/plain')
-          document.execCommand('insertText', false, text)
-          markDirty()
+      </form>
+      {entries.length === 0 ? (
+        <p className="meta">Nothing in the margin yet. The first note starts it.</p>
+      ) : (
+        <ol className="journal-log">
+          {entries.map((entry) => (
+            <li key={entry.id}>
+              <article>
+                <header>
+                  <p className="kicker">{formatDate(entry.createdAt)}</p>
+                  {editingId !== entry.id && (
+                    <button
+                      type="button"
+                      className="quiet"
+                      onClick={() => {
+                        setEditingId(entry.id)
+                        setEditText(plainNote(entry.bodyHtml))
+                      }}
+                    >
+                      Revise
+                    </button>
+                  )}
+                  <button type="button" className="quiet" onClick={() => setRemoveId(entry.id)}>
+                    Remove
+                  </button>
+                </header>
+                {editingId === entry.id ? (
+                  <form
+                    className="journal-compose"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void revise(entry)
+                    }}
+                  >
+                    <textarea className="area" aria-label={`Revise note from ${formatDate(entry.createdAt)}`} value={editText} onChange={(event) => setEditText(event.target.value)} />
+                    <div className="editor-bar">
+                      <button className="btn" type="submit">
+                        Update note
+                      </button>
+                      <button type="button" className="btn secondary" onClick={() => setEditingId(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="journal-page" dangerouslySetInnerHTML={{ __html: entry.bodyHtml }} />
+                )}
+              </article>
+            </li>
+          ))}
+        </ol>
+      )}
+      <Confirm
+        open={removeId != null}
+        title="Remove this note?"
+        body="This takes the note out of the margin. The book stays."
+        confirmLabel="Remove note"
+        onClose={() => setRemoveId(null)}
+        onConfirm={() => {
+          if (removeId == null) return
+          const id = removeId
+          void api(`/api/journal-entries/${id}`, { method: 'DELETE' }).then(() => {
+            setEntries((current) => current.filter((entry) => entry.id !== id))
+            setRemoveId(null)
+            if (editingId === id) setEditingId(null)
+            toast('Note removed.')
+          })
         }}
       />
-      <p className="save-state" aria-live="polite">
-        {note}
-      </p>
     </div>
   )
 }
@@ -563,6 +607,34 @@ function Share({
       </form>
     </div>
   )
+}
+
+function paragraphs(text: string): string {
+  const blocks = text
+    .trim()
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block !== '')
+  return blocks
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}
+
+function plainNote(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 export function statusText(status: ReadingStatus): string {

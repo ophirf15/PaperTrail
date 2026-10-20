@@ -147,6 +147,11 @@ check($rated['body']['rating'] === 4.5, 'half-star rating saves');
 
 $journal = call('PUT', "/books/{$bookId}/journal", ['bodyHtml' => '<p>Ice and <strong>trust</strong>.</p><script>alert(1)</script>'], $token);
 check(str_contains($journal['body']['journalHtml'], '<strong>trust</strong>') && !str_contains($journal['body']['journalHtml'], 'script'), 'journal sanitizes and saves');
+$later = call('POST', "/books/{$bookId}/notes", ['bodyHtml' => '<p>A later evening.</p>'], $token);
+check($later['status'] === 201, 'a later note is its own entry');
+$pages = call('GET', "/books/{$bookId}", [], $token);
+$entryText = implode(' ', array_column($pages['body']['journalEntries'], 'bodyHtml'));
+check(count($pages['body']['journalEntries']) === 2 && str_contains($entryText, 'Ice and') && str_contains($entryText, 'later evening'), 'earlier notes stay beside the new one');
 
 $quote = call('POST', "/books/{$bookId}/quotes", ['body' => 'The king was pregnant.', 'location' => 'p. 90', 'note' => 'Still startling.'], $token);
 check($quote['status'] === 201, 'quote is saved');

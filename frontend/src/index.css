@@ -363,6 +363,20 @@ label.stack { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.
 .editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
 .editor-bar { display: flex; gap: 0.25rem; margin-bottom: 0.45rem; align-items: center; }
 .editor-bar .btn { margin-left: auto; }
+.journal-compose { display: grid; gap: 0.65rem; margin-bottom: 1.1rem; }
+.journal-compose .btn { justify-self: start; }
+.journal-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.journal-log article {
+  padding: 0.85rem 1rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg) 62%, var(--paper));
+}
+.journal-log header { display: flex; align-items: baseline; gap: 0.7rem; }
+.journal-log header .kicker { margin: 0; flex: 1; }
+.journal-page { margin-top: 0.45rem; font-family: "Cormorant Garamond", Palatino, serif; font-size: 1.35rem; line-height: 1.35; }
+.journal-page p { margin: 0.35rem 0 0; }
+.journal-page p:first-child { margin-top: 0; }
 .save-state { color: var(--muted); font-size: 0.8rem; min-height: 1rem; }
 
 .quote-card {

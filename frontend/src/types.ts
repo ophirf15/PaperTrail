@@ -47,8 +47,15 @@ export type Recommendation = {
   sharedAt: string | null
 }
 
+export type JournalEntry = {
+  id: number
+  bodyHtml: string
+  createdAt: string
+}
+
 export type BookDetail = Book & {
   journalHtml: string
+  journalEntries: JournalEntry[]
   quotes: Quote[]
   recommendations: Recommendation[]
   sessions: { id: number; startedAt: string | null; finishedAt: string | null; status: string; isReread: boolean }[]

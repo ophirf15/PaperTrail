@@ -34,7 +34,42 @@ final class Journal
         $now = Database::now();
         Database::pdo()->prepare('INSERT INTO journal_entries (book_id, kind, body_html, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
             ->execute([$bookId, 'note', $clean, $now, $now]);
-        return ['id' => (int) Database::pdo()->lastInsertId(), 'bodyHtml' => $clean, 'createdAt' => $now];
+        return self::presentEntry([
+            'id' => (int) Database::pdo()->lastInsertId(),
+            'body_html' => $clean,
+            'created_at' => $now,
+        ]);
+    }
+
+    public static function listForBook(int $bookId): array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT id, body_html, created_at FROM journal_entries WHERE book_id = ? ORDER BY created_at DESC, id DESC'
+        );
+        $stmt->execute([$bookId]);
+        return array_map(self::presentEntry(...), $stmt->fetchAll());
+    }
+
+    public static function updateEntry(int $id, string $html): array
+    {
+        $existing = self::findEntry($id);
+        $clean = Html::sanitize($html);
+        if (Html::plain($clean) === '') {
+            throw new HttpException(400, 'Write a few words first.');
+        }
+        Database::pdo()->prepare('UPDATE journal_entries SET body_html = ?, updated_at = ? WHERE id = ?')
+            ->execute([$clean, Database::now(), $id]);
+        return self::presentEntry([
+            'id' => $existing['id'],
+            'body_html' => $clean,
+            'created_at' => $existing['created_at'],
+        ]);
+    }
+
+    public static function deleteEntry(int $id): void
+    {
+        self::findEntry($id);
+        Database::pdo()->prepare('DELETE FROM journal_entries WHERE id = ?')->execute([$id]);
     }
 
     public static function quotesCreate(int $bookId, array $input): array
@@ -253,6 +288,26 @@ final class Journal
             'location' => $row['location'],
             'note' => $row['note'],
             'createdAt' => $row['created_at'],
+        ];
+    }
+
+    private static function findEntry(int $id): array
+    {
+        $stmt = Database::pdo()->prepare('SELECT id, body_html, created_at FROM journal_entries WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            throw new HttpException(404, 'That note is no longer in the journal.');
+        }
+        return $row;
+    }
+
+    private static function presentEntry(array $row): array
+    {
+        return [
+            'id' => (int) $row['id'],
+            'bodyHtml' => (string) $row['body_html'],
+            'createdAt' => (string) $row['created_at'],
         ];
     }
 

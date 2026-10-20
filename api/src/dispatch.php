@@ -147,6 +147,16 @@ function dispatch(string $method, string $path, array $body = [], array $query =
     if ($method === 'PUT' && preg_match('#^/books/(\d+)/journal$#', $path, $m)) {
         return ok(Journal::saveJournal((int) $m[1], (string) ($body['bodyHtml'] ?? '')));
     }
+    if ($method === 'POST' && preg_match('#^/books/(\d+)/notes$#', $path, $m)) {
+        return ok(Journal::addNote((int) $m[1], (string) ($body['bodyHtml'] ?? '')), 201);
+    }
+    if ($method === 'PATCH' && preg_match('#^/journal-entries/(\d+)$#', $path, $m)) {
+        return ok(Journal::updateEntry((int) $m[1], (string) ($body['bodyHtml'] ?? '')));
+    }
+    if ($method === 'DELETE' && preg_match('#^/journal-entries/(\d+)$#', $path, $m)) {
+        Journal::deleteEntry((int) $m[1]);
+        return ok(['ok' => true]);
+    }
     if ($method === 'POST' && preg_match('#^/books/(\d+)/quotes$#', $path, $m)) {
         return ok(Journal::quotesCreate((int) $m[1], $body), 201);
     }

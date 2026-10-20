@@ -51,6 +51,7 @@ final class Library
         $tags = self::tagsFor([$id]);
         $presented = self::present($book, $tags[$id] ?? []);
         $presented['journalHtml'] = self::journalHtml($id);
+        $presented['journalEntries'] = Journal::listForBook($id);
         $presented['quotes'] = self::quotes($id);
         $presented['recommendations'] = self::recommendations($id);
         $presented['sessions'] = self::sessions($id);
