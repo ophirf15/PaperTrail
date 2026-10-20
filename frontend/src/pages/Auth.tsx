@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { api } from '../api'
+import logo from '../assets/logo.png'
 import { useAuth, type InstallDatabase } from '../state'
 
 type InstallDriver = InstallDatabase['driver']
@@ -58,6 +59,7 @@ export function SetupPage() {
   const ready = status?.phpOk === true && status.dataWritable && driverReady
   return (
     <div className="page" style={{ maxWidth: 560, margin: '8vh auto 0' }}>
+      <img className="brand-mark" src={logo} alt="" width="74" height="74" />
       <p className="kicker">Paper Trail</p>
       <h1>Install the journal.</h1>
       <p className="lede">
@@ -210,6 +212,7 @@ export function LoginPage() {
   if (needsSetup) return <Navigate to="/setup" replace />
   return (
     <div className="page" style={{ maxWidth: 460, margin: '12vh auto 0' }}>
+      <img className="brand-mark" src={logo} alt="" width="74" height="74" />
       <p className="kicker">Paper Trail</p>
       <h1>Welcome back.</h1>
       <p className="lede">The shelves kept your place.</p>

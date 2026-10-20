@@ -111,9 +111,11 @@ img { max-width: 100%; display: block; }
   gap: 1.5rem;
 }
 
-.wordmark { text-decoration: none; color: inherit; display: block; padding: 0 0.45rem; }
+.wordmark { text-decoration: none; color: inherit; display: flex; flex-direction: column; align-items: flex-start; gap: 0.7rem; padding: 0 0.45rem; }
+.wordmark img { width: 3.4rem; height: 3.4rem; border-radius: 0.95rem; }
 .wordmark strong { display: block; font-family: "Cormorant Garamond", Palatino, serif; font-size: 2rem; font-weight: 600; line-height: 0.9; }
-.wordmark span { display: block; margin-top: 0.45rem; color: var(--muted); font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
+.wordmark .wordmark-tag { display: block; margin-top: 0.45rem; color: var(--muted); font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
+.brand-mark { width: 4.6rem; height: 4.6rem; border-radius: 1.15rem; margin: 0 0 0.85rem; }
 
 .nav-list { display: flex; flex-direction: column; gap: 0.2rem; }
 .nav-link, .icon-btn, .btn, .quiet, .seg button, .tab {

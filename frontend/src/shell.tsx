@@ -1,4 +1,5 @@
 import { BarChart3, House, Library, NotebookPen, Plus, Settings, Users } from 'lucide-react'
+import logo from './assets/logo.png'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import { AddBook } from './AddBook'
@@ -72,8 +73,11 @@ export function Shell({ children }: { children?: ReactNode }) {
       <div className="app-shell">
         <aside className="sidebar">
           <NavLink to="/" className="wordmark">
-            <strong>Paper Trail</strong>
-            <span>A reading journal</span>
+            <img src={logo} alt="" width="54" height="54" />
+            <span>
+              <strong>Paper Trail</strong>
+              <span className="wordmark-tag">A reading journal</span>
+            </span>
           </NavLink>
           <nav className="nav-list" aria-label="Primary">
             {links.map((link) => (
