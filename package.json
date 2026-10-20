@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "name": "paper-trail",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "api": "php -S 127.0.0.1:8080 -t public public/index.php",
+    "build": "npm run build --prefix frontend",
+    "test": "php tests/run.php"
+  }
+}

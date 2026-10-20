@@ -1,0 +1,30 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - run: npm install --prefix frontend
+      - run: npm run build --prefix frontend
+      - name: Pack update zip
+        run: |
+          mkdir -p dist
+          zip -r "dist/paper-trail-${GITHUB_REF_NAME}-update.zip" . \
+            -x '*.git*' 'frontend/node_modules/*' 'data/*' 'storage/*' '.env' '.env.*' 'tests/*'
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*-update.zip

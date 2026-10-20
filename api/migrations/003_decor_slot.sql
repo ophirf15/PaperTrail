@@ -1,0 +1,1 @@
+ALTER TABLE shelf_decorations ADD COLUMN slot INTEGER NOT NULL DEFAULT 0;
