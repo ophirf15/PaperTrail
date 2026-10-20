@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, like 0.1.0'
+        required: true
+        type: string
 
 jobs:
   package:
@@ -12,6 +18,25 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            raw="$INPUT_VERSION"
+          else
+            raw="$REF_NAME"
+          fi
+          raw="${raw#v}"
+          if ! [[ "$raw" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must look like 0.1.0 or v0.1.0" >&2
+            exit 1
+          fi
+          echo "tag=v${raw}" >> "$GITHUB_OUTPUT"
+          echo "number=${raw}" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -20,11 +45,16 @@ jobs:
           php-version: '8.3'
       - run: npm install --prefix frontend
       - run: npm run build --prefix frontend
+      - name: Stamp version
+        run: printf '%s\n' "${{ steps.version.outputs.number }}" > VERSION
       - name: Pack update zip
         run: |
           mkdir -p dist
-          zip -r "dist/paper-trail-${GITHUB_REF_NAME}-update.zip" . \
+          zip -r "dist/paper-trail-v${{ steps.version.outputs.number }}-update.zip" . \
             -x '*.git*' 'frontend/node_modules/*' 'data/*' 'storage/*' '.env' '.env.*' 'tests/*'
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: dist/*-update.zip
+          generate_release_notes: true
