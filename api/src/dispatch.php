@@ -77,6 +77,10 @@ function dispatch(string $method, string $path, array $body = [], array $query =
         $hit = is_array($body['hit'] ?? null) ? $body['hit'] : $body;
         return ok(Library::addHit($hit, $status), 201);
     }
+    if ($method === 'POST' && $path === '/books/bulk') {
+        $ids = is_array($body['ids'] ?? null) ? $body['ids'] : [];
+        return ok(Library::updateMany($ids, $body));
+    }
     if ($method === 'POST' && $path === '/sample-shelf') {
         return ok(Library::seedSamples(), 201);
     }

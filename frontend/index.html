@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#4f6249" />
     <meta name="description" content="Paper Trail, a personal reading journal and digital bookshelf." />
     <meta name="robots" content="noindex" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
@@ -15,12 +16,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet" />
     <title>Paper Trail</title>
-    <script>
-      try {
-        var theme = localStorage.getItem('pt-theme')
-        if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme
-      } catch (e) {}
-    </script>
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

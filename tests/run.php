@@ -132,7 +132,7 @@ $created = call('POST', '/books', [
     'pageCount' => 304,
     'publishYear' => 1969,
 ], $token);
-check($created['status'] === 201 && $created['body']['status'] === 'reading', 'manual book lands on the reading shelf');
+check($created['status'] === 201 && $created['body']['status'] === 'reading' && $created['body']['owned'] === true, 'manual book lands on the reading shelf and counts as owned');
 $bookId = (int) $created['body']['id'];
 
 $dup = call('POST', '/books', [
@@ -166,6 +166,25 @@ check($rec['status'] === 201, 'recommendation links a person');
 call('PUT', '/goals/' . gmdate('Y'), ['target' => 1], $token);
 $finished = call('PATCH', "/books/{$bookId}/entry", ['status' => 'finished', 'dateFinished' => gmdate('Y') . '-02-02'], $token);
 check($finished['body']['status'] === 'finished' && $finished['body']['goalReached'] === true, 'finishing a book counts toward the goal');
+$waiting = call('POST', '/books', [
+    'status' => 'want',
+    'title' => 'Klara and the Sun',
+    'authors' => ['Kazuo Ishiguro'],
+], $token);
+check($waiting['status'] === 201 && $waiting['body']['owned'] === false, 'a want-to-read book starts as still to buy');
+$marked = call('PATCH', '/books/' . $waiting['body']['id'] . '/entry', ['owned' => true], $token);
+check($marked['body']['owned'] === true, 'a want-to-read book can be marked as already owned');
+$bulk = call('POST', '/books/bulk', [
+    'ids' => [$waiting['body']['id']],
+    'dateFinished' => '2024-03-03',
+    'owned' => false,
+], $token);
+check(
+    $bulk['body']['updated'] === 1
+    && $bulk['body']['books'][0]['dateFinished'] === '2024-03-03'
+    && $bulk['body']['books'][0]['owned'] === false,
+    'bulk edit changes the date read and the copy together'
+);
 $stats = call('GET', '/stats', [], $token);
 check($stats['body']['finishedThisYear'] === 1, 'stats use the finish date');
 

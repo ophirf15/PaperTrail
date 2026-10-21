@@ -3,12 +3,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, api } from '../api'
 import { Bookcase, ORNAMENTS, Ornament, type Decoration, type OrnamentKind } from '../bookcase'
 import { BookGallery } from '../covers'
+import { Ledger } from '../Ledger'
 import { useJournalNav } from '../shell'
 import { useAuth, useLibrary, useToast } from '../state'
 import { STATUS_LABEL, type Book, type ReadingStatus, type Settings, type ShelfArrange } from '../types'
 import { EmptyState, SkeletonRow } from '../ui'
 
 type Filter = 'all' | ReadingStatus
+type CopyFilter = 'any' | 'owned' | 'buy'
 
 const ARRANGEMENTS: { key: ShelfArrange; label: string }[] = [
   { key: 'author', label: 'Author' },
@@ -27,6 +29,7 @@ export function LibraryPage() {
   const [orderOverride, setOrderOverride] = useState<number[] | null>(null)
   const [query, setQuery] = useState('')
   const [genre, setGenre] = useState('all')
+  const [copy, setCopy] = useState<CopyFilter>('any')
   const [decorations, setDecorations] = useState<Decoration[]>([])
   const [decorating, setDecorating] = useState(false)
   const [ornament, setOrnament] = useState<OrnamentKind>('plant')
@@ -78,6 +81,7 @@ export function LibraryPage() {
     const needle = query.trim().toLowerCase()
     const next = books.filter((book) => {
       if (filter !== 'all' && book.status !== filter) return false
+      if (!matchesCopy(book, copy)) return false
       if (genre !== 'all' && !book.genres.some((item) => item.toLowerCase() === genre.toLowerCase())) return false
       if (!needle) return true
       return (
@@ -87,7 +91,7 @@ export function LibraryPage() {
       )
     })
     return arrangeBooks(next, arrangement, orderIds)
-  }, [books, filter, genre, query, arrangement, orderIds])
+  }, [books, filter, copy, genre, query, arrangement, orderIds])
 
   if (!books) return <SkeletonRow />
   const samples = books.some((book) => book.isSample)
@@ -126,6 +130,11 @@ export function LibraryPage() {
           <Search size={16} aria-hidden="true" />
           <input className="field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your shelves" aria-label="Search your shelves" />
         </label>
+        <select className="select" aria-label="Filter by ownership" value={copy} onChange={(event) => setCopy(event.target.value as CopyFilter)} style={{ width: 'auto' }}>
+          <option value="any">Owned or not</option>
+          <option value="owned">On the shelf</option>
+          <option value="buy">Still to buy</option>
+        </select>
         {genres.length > 0 && (
           <select className="select" aria-label="Filter by genre" value={genre} onChange={(event) => setGenre(event.target.value)} style={{ width: 'auto' }}>
             <option value="all">All genres</option>
@@ -193,6 +202,9 @@ export function LibraryPage() {
                     <button type="button" role="radio" aria-checked={view === 'gallery'} onClick={() => void saveSettings({ shelfView: 'gallery' })}>
                       Gallery
                     </button>
+                    <button type="button" role="radio" aria-checked={view === 'ledger'} onClick={() => void saveSettings({ shelfView: 'ledger' })}>
+                      Ledger
+                    </button>
                   </div>
                 </fieldset>
                 <button
@@ -211,6 +223,9 @@ export function LibraryPage() {
           </div>
         )}
       </div>
+      {(filter === 'want' || copy !== 'any') && books.length > 0 && (
+        <p className="meta shelf-help">Gold means you already own it. Rose means it is still to buy.</p>
+      )}
       {arrangement === 'free' && view === 'shelf' && visible.length > 0 && (
         <p className="meta shelf-help">Drag the handle on a book to move it. Alt and the left or right arrow does the same from that handle. Author, date read, and genre line the shelves up again, and this order stays put.</p>
       )}
@@ -245,30 +260,28 @@ export function LibraryPage() {
         <EmptyState achievement title="The to-read shelf is clear." body="A rare and lovely quiet. Whatever you pick up next can wait until you want it." />
       )}
       {books.length > 0 && visible.length === 0 && !(filter === 'want' && finishedSome) && (
-        <EmptyState title="Nothing on this shelf matches." body="Try another status, or clear the search to see the whole collection again." action={<button className="btn secondary" type="button" onClick={() => { setQuery(''); setFilter('all'); setGenre('all') }}>Show everything</button>} />
+        <EmptyState title="Nothing on this shelf matches." body="Try another status, or clear the search to see the whole collection again." action={<button className="btn secondary" type="button" onClick={() => { setQuery(''); setFilter('all'); setGenre('all'); setCopy('any') }}>Show everything</button>} />
       )}
-      {visible.length > 0 &&
-        (view === 'shelf' ? (
-          <Bookcase
-            books={visible}
-            style={shelfStyle}
-            decorations={decorations}
-            decorating={decorating}
-            arrangement={arrangement}
-            onOpen={openBook}
-            onPlace={(shelfIndex, slot) => void placeOrnament(shelfIndex, slot, ornament, toast, setDecorations)}
-            onRemove={(id) => void removeOrnament(id, toast, setDecorations)}
-            onReorder={(movedId, beforeId) => {
-              if (!books) return
-              const next = moveBook(orderIds, books.map((book) => book.id), movedId, beforeId)
-              setOrderOverride(next)
-              setArrangement('free')
-              void saveSettings({ shelfArrange: 'free', shelfOrder: next.join(',') })
-            }}
-          />
-        ) : (
-          <BookGallery books={visible} onOpen={openBook} />
-        ))}
+      {visible.length > 0 && (
+        <LibraryView
+          view={view}
+          books={visible}
+          shelfStyle={shelfStyle}
+          decorations={decorations}
+          decorating={decorating}
+          arrangement={arrangement}
+          onOpen={openBook}
+          onPlace={(shelfIndex, slot) => void placeOrnament(shelfIndex, slot, ornament, toast, setDecorations)}
+          onRemove={(id) => void removeOrnament(id, toast, setDecorations)}
+          onReorder={(movedId, beforeId) => {
+            if (!books) return
+            const next = moveBook(orderIds, books.map((book) => book.id), movedId, beforeId)
+            setOrderOverride(next)
+            setArrangement('free')
+            void saveSettings({ shelfArrange: 'free', shelfOrder: next.join(',') })
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -291,10 +304,84 @@ async function removeOrnament(id: number, toast: (message: string) => void, setD
   }
 }
 
+function LibraryView({
+  view,
+  books,
+  shelfStyle,
+  decorations,
+  decorating,
+  arrangement,
+  onOpen,
+  onPlace,
+  onRemove,
+  onReorder,
+}: {
+  view: Settings['shelfView']
+  books: Book[]
+  shelfStyle: Settings['shelfStyle']
+  decorations: Decoration[]
+  decorating: boolean
+  arrangement: ShelfArrange
+  onOpen: (id: number) => void
+  onPlace: (shelfIndex: number, slot: number) => void
+  onRemove: (id: number) => void
+  onReorder: (movedId: number, beforeId: number | null) => void
+}) {
+  switch (view) {
+    case 'shelf':
+      return (
+        <Bookcase
+          books={books}
+          style={shelfStyle}
+          decorations={decorations}
+          decorating={decorating}
+          arrangement={arrangement}
+          onOpen={onOpen}
+          onPlace={onPlace}
+          onRemove={onRemove}
+          onReorder={onReorder}
+        />
+      )
+    case 'gallery':
+      return <BookGallery books={books} onOpen={onOpen} />
+    case 'ledger':
+      return <Ledger books={books} onOpen={onOpen} />
+    default: {
+      const _exhaustive: never = view
+      return _exhaustive
+    }
+  }
+}
+
+function matchesCopy(book: Book, copy: CopyFilter) {
+  switch (copy) {
+    case 'any':
+      return true
+    case 'owned':
+      return book.owned
+    case 'buy':
+      return !book.owned
+    default: {
+      const _exhaustive: never = copy
+      return _exhaustive
+    }
+  }
+}
+
 function shelfSummary(arrangement: ShelfArrange, style: Settings['shelfStyle'], view: Settings['shelfView']) {
   const arranged = ARRANGEMENTS.find((item) => item.key === arrangement)?.label ?? 'My order'
-  if (view === 'gallery') return `${arranged} · Gallery`
-  return `${arranged} · ${styleName(style)}`
+  switch (view) {
+    case 'gallery':
+      return `${arranged} · Gallery`
+    case 'ledger':
+      return `${arranged} · Ledger`
+    case 'shelf':
+      return `${arranged} · ${styleName(style)}`
+    default: {
+      const _exhaustive: never = view
+      return _exhaustive
+    }
+  }
 }
 
 function styleName(style: Settings['shelfStyle']) {

@@ -1,7 +1,7 @@
 import { Copy, Trash2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from './api'
-import { Cover } from './covers'
+import { Cover, OwnedLamp } from './covers'
 import { useLibrary, useToast } from './state'
 import {
   STATUS_LABEL,
@@ -65,8 +65,9 @@ export function BookModal({ bookId, initialTab, onClose }: { bookId: string | nu
       {!detail && !error && <div className="skeleton" style={{ height: 280 }} />}
       {detail && (
         <div className="book-modal">
-          <div>
+          <div className="modal-cover">
             <Cover title={detail.title} authors={detail.authors} coverUrl={detail.coverUrl} />
+            <OwnedLamp book={detail} />
           </div>
           <div>
             <p className="meta" style={{ marginTop: 0 }}>
@@ -148,6 +149,20 @@ function Overview({
               {STATUS_LABEL[key]}
             </option>
           ))}
+        </select>
+      </label>
+      <label className="stack">
+        <span>Owned</span>
+        <select
+          className="select"
+          value={book.owned ? 'yes' : 'no'}
+          onChange={(event) => {
+            const owned = event.target.value === 'yes'
+            void onEntry({ owned }).then(() => toast(owned ? 'Marked as on your shelf.' : 'Marked as still to buy.'))
+          }}
+        >
+          <option value="yes">On your shelf</option>
+          <option value="no">Still to buy</option>
         </select>
       </label>
       <div className="section-head">

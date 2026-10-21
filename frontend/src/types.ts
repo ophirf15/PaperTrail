@@ -24,6 +24,7 @@ export type Book = {
   currentPage: number | null
   progressPercent: number | null
   readCount: number
+  owned: boolean
   importedReview: string | null
   tags: string[]
   alreadyOwned?: boolean
@@ -125,7 +126,7 @@ export type ShelfArrange = 'author' | 'read' | 'genre' | 'free'
 
 export type Settings = {
   theme: 'light' | 'dark'
-  shelfView: 'gallery' | 'shelf'
+  shelfView: 'gallery' | 'shelf' | 'ledger'
   shelfStyle: 'spines' | 'mixed' | 'covers'
   shelfArrange: ShelfArrange
   shelfOrder: string

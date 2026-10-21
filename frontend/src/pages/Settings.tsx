@@ -124,6 +124,9 @@ export function SettingsPage() {
             <button type="button" aria-pressed={settings.shelfView === 'gallery'} onClick={() => void saveSettings({ shelfView: 'gallery' })}>
               Gallery
             </button>
+            <button type="button" aria-pressed={settings.shelfView === 'ledger'} onClick={() => void saveSettings({ shelfView: 'ledger' })}>
+              Ledger
+            </button>
           </div>
           <div className="seg" style={{ marginTop: '0.6rem' }}>
             <button type="button" aria-pressed={settings.shelfStyle === 'spines'} onClick={() => void saveSettings({ shelfStyle: 'spines' })}>

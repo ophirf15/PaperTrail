@@ -105,6 +105,7 @@ final class Transfer
                             'rating' => $row['rating'],
                             'dateAdded' => $row['dateAdded'],
                             'dateFinished' => $row['dateFinished'],
+                            'owned' => $row['owned'] ?? ($row['status'] ?? 'want') !== 'want',
                             'tags' => $row['tags'],
                             'description' => null,
                         ], $row['status'] ?: 'want');
@@ -167,7 +168,7 @@ final class Transfer
         if ($handle === false) {
             throw new HttpException(500, 'Could not prepare the export.');
         }
-        fputcsv($handle, ['Title', 'Authors', 'ISBN13', 'ISBN10', 'Status', 'Rating', 'Date Added', 'Date Started', 'Date Finished', 'Pages', 'Current Page', 'Genres', 'Tags', 'Goodreads Book Id']);
+        fputcsv($handle, ['Title', 'Authors', 'ISBN13', 'ISBN10', 'Status', 'Owned', 'Rating', 'Date Added', 'Date Started', 'Date Finished', 'Pages', 'Current Page', 'Genres', 'Tags', 'Goodreads Book Id']);
         foreach ($books as $book) {
             fputcsv($handle, [
                 $book['title'],
@@ -175,6 +176,7 @@ final class Transfer
                 $book['isbn13'],
                 $book['isbn10'],
                 $book['status'],
+                !empty($book['owned']) ? 'yes' : 'no',
                 $book['rating'],
                 $book['dateAdded'],
                 $book['dateStarted'],
@@ -272,6 +274,14 @@ final class Transfer
             $exclusive = strtolower(trim((string) ($record['exclusive shelf'] ?? '')));
             $shelves = array_values(array_filter(array_map('trim', explode(',', (string) ($record['bookshelves'] ?? '')))));
             $status = self::mapShelf($exclusive !== '' ? $exclusive : strtolower($shelves[0] ?? 'to-read'));
+            $copies = (int) preg_replace('/\D/', '', (string) ($record['owned copies'] ?? '0'));
+            $shelfOwned = false;
+            foreach ($shelves as $shelf) {
+                if (strtolower($shelf) === 'owned') {
+                    $shelfOwned = true;
+                }
+            }
+            $owned = $copies > 0 || $shelfOwned || $status !== 'want';
             $rating = (int) ($record['my rating'] ?? 0);
             $review = trim((string) ($record['my review'] ?? ''));
             $notes = trim((string) ($record['private notes'] ?? ''));
@@ -285,6 +295,7 @@ final class Transfer
                 'publishYear' => (int) ($record['year published'] ?? 0) ?: null,
                 'pageCount' => (int) ($record['number of pages'] ?? 0) ?: null,
                 'status' => $status,
+                'owned' => $owned,
                 'rating' => $rating > 0 ? (float) $rating : null,
                 'dateAdded' => self::looseDate($record['date added'] ?? null),
                 'dateFinished' => self::looseDate($record['date read'] ?? null),
@@ -324,6 +335,7 @@ final class Transfer
         $finished = $entry['date_finished'];
         $added = $entry['date_added'];
         $readCount = (int) $entry['read_count'];
+        $owned = (int) ($entry['owned'] ?? 0) === 1 ? 1 : 0;
         $apply = static function (mixed $local, mixed $incoming) use ($policy): mixed {
             $localEmpty = $local === null || $local === '';
             if ($policy === 'use_import') {
@@ -342,9 +354,14 @@ final class Transfer
             if ($row['readCount'] && ($policy === 'use_import' || $readCount === 0)) {
                 $readCount = max($readCount, (int) $row['readCount']);
             }
+            if (array_key_exists('owned', $row)) {
+                if ($policy === 'use_import' || ($policy === 'fill_empty' && $owned === 0 && !empty($row['owned']))) {
+                    $owned = !empty($row['owned']) ? 1 : 0;
+                }
+            }
         }
-        $pdo->prepare('UPDATE library_entries SET status = ?, rating = ?, date_added = ?, date_started = ?, date_finished = ?, read_count = ?, updated_at = ? WHERE book_id = ?')
-            ->execute([$status, $rating, $added, $started, $finished, $readCount, Database::now(), $id]);
+        $pdo->prepare('UPDATE library_entries SET status = ?, rating = ?, date_added = ?, date_started = ?, date_finished = ?, read_count = ?, owned = ?, updated_at = ? WHERE book_id = ?')
+            ->execute([$status, $rating, $added, $started, $finished, $readCount, $owned, Database::now(), $id]);
         $book = $pdo->prepare('SELECT goodreads_book_id, page_count, publisher, publish_year, cover_url, isbn13 FROM books WHERE id = ?');
         $book->execute([$id]);
         $meta = $book->fetch();

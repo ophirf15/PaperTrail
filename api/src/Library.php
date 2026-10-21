@@ -11,7 +11,7 @@ final class Library
     public static function list(array $query): array
     {
         $sql = 'SELECT b.*, e.status, e.rating, e.date_added, e.date_started, e.date_finished, e.current_page,
-                       e.progress_percent, e.read_count, e.imported_review, e.rating_updated_at
+                       e.progress_percent, e.read_count, e.owned, e.imported_review, e.rating_updated_at
                 FROM books b JOIN library_entries e ON e.book_id = b.id WHERE 1 = 1';
         $params = [];
         $status = $query['status'] ?? '';
@@ -121,9 +121,10 @@ final class Library
             $dateStarted = $status === 'reading' ? $today : null;
             $dateFinished = $status === 'finished' ? ($hit['dateFinished'] ?? $today) : null;
             $rating = isset($hit['rating']) ? valid_rating($hit['rating']) : null;
+            $owned = array_key_exists('owned', $hit) ? (!empty($hit['owned']) ? 1 : 0) : ($status === 'want' ? 0 : 1);
             $pdo->prepare(
-                'INSERT INTO library_entries (book_id, status, rating, date_added, date_started, date_finished, current_page, progress_percent, read_count, rating_updated_at, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO library_entries (book_id, status, rating, date_added, date_started, date_finished, current_page, progress_percent, read_count, owned, rating_updated_at, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $bookId,
                 $status,
@@ -134,6 +135,7 @@ final class Library
                 null,
                 $status === 'finished' ? 100 : null,
                 $status === 'finished' ? 1 : 0,
+                $owned,
                 $rating !== null ? $now : null,
                 $now,
                 $now,
@@ -253,6 +255,10 @@ final class Library
                 $params[] = (int) round(((int) $row['page_count']) * $percent / 100);
             }
         }
+        if (array_key_exists('owned', $input)) {
+            $sets[] = 'owned = ?';
+            $params[] = self::ownedFlag($input['owned']);
+        }
         if ($sets !== []) {
             $sets[] = 'updated_at = ?';
             $params[] = Database::now();
@@ -262,6 +268,33 @@ final class Library
         $book = self::get($id);
         $book['goalReached'] = $goalReached;
         return $book;
+    }
+
+    public static function updateMany(array $ids, array $input): array
+    {
+        $clean = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $clean[$id] = $id;
+            }
+        }
+        $clean = array_values($clean);
+        if ($clean === []) {
+            throw new HttpException(400, 'Choose at least one book.');
+        }
+        if (count($clean) > 200) {
+            throw new HttpException(400, 'Choose 200 books or fewer at a time.');
+        }
+        $patch = array_intersect_key($input, array_flip(['status', 'owned', 'rating', 'dateStarted', 'dateFinished', 'dateAdded']));
+        if ($patch === []) {
+            throw new HttpException(400, 'Choose a status, date, rating, or copy to change.');
+        }
+        $books = [];
+        foreach ($clean as $id) {
+            $books[] = self::updateEntry($id, $patch);
+        }
+        return ['updated' => count($books), 'books' => $books];
     }
 
     public static function setStatus(int $id, string $status, ?string $finishedDate = null): array
@@ -277,6 +310,10 @@ final class Library
         $dateFinished = $row['date_finished'];
         $progress = $row['progress_percent'];
         $current = $row['current_page'];
+        $owned = (int) ($row['owned'] ?? 0) === 1 ? 1 : 0;
+        if (in_array($status, ['reading', 'finished'], true) && $previous !== $status) {
+            $owned = 1;
+        }
         if ($status === 'reading' && $previous !== 'reading') {
             $reread = $previous === 'finished' || $readCount > 0;
             $dateStarted = $today;
@@ -301,8 +338,8 @@ final class Library
             self::closeSession($pdo, $id, $today, $current !== null ? (int) $current : null);
         }
         $pdo->prepare(
-            'UPDATE library_entries SET status = ?, date_started = ?, date_finished = ?, read_count = ?, progress_percent = ?, current_page = ?, updated_at = ? WHERE book_id = ?'
-        )->execute([$status, $dateStarted, $dateFinished, $readCount, $progress, $current, Database::now(), $id]);
+            'UPDATE library_entries SET status = ?, date_started = ?, date_finished = ?, read_count = ?, progress_percent = ?, current_page = ?, owned = ?, updated_at = ? WHERE book_id = ?'
+        )->execute([$status, $dateStarted, $dateFinished, $readCount, $progress, $current, $owned, Database::now(), $id]);
         if ($status === 'finished' && $previous !== 'finished' && $dateFinished) {
             $goalReached = self::celebrate((int) substr((string) $dateFinished, 0, 4));
         }
@@ -464,8 +501,8 @@ final class Library
             ['title' => 'The Midnight Library', 'authors' => ['Matt Haig'], 'isbn13' => '9780525559474', 'status' => 'reading', 'dateStarted' => $year . '-10-11', 'pageCount' => 304, 'publishYear' => 2020, 'currentHint' => 40, 'genres' => ['Fiction'], 'description' => 'A second sample currently on the nightstand.'],
             ['title' => 'Tomorrow, and Tomorrow, and Tomorrow', 'authors' => ['Gabrielle Zevin'], 'isbn13' => '9780593321201', 'status' => 'reading', 'dateStarted' => $year . '-10-15', 'pageCount' => 401, 'publishYear' => 2022, 'currentHint' => 28, 'genres' => ['Fiction'], 'description' => 'A sample just begun, so progress can be updated.'],
             ['title' => 'The Atlas Six', 'authors' => ['Olivie Blake'], 'isbn13' => '9781250854513', 'status' => 'dnf', 'dateStarted' => $year . '-07-20', 'pageCount' => 384, 'publishYear' => 2020, 'currentHint' => 70, 'genres' => ['Fantasy'], 'description' => 'A sample did-not-finish, so that shelf is not empty.'],
-            ['title' => 'The Night Circus', 'authors' => ['Erin Morgenstern'], 'isbn13' => '9780307744432', 'status' => 'want', 'pageCount' => 387, 'publishYear' => 2011, 'genres' => ['Fantasy'], 'description' => 'Waiting on the want-to-read shelf.'],
-            ['title' => 'The House in the Cerulean Sea', 'authors' => ['TJ Klune'], 'isbn13' => '9781250217288', 'status' => 'want', 'pageCount' => 398, 'publishYear' => 2020, 'genres' => ['Fantasy'], 'description' => 'A sample waiting to be started.'],
+            ['title' => 'The Night Circus', 'authors' => ['Erin Morgenstern'], 'isbn13' => '9780307744432', 'status' => 'want', 'owned' => true, 'pageCount' => 387, 'publishYear' => 2011, 'genres' => ['Fantasy'], 'description' => 'Waiting on the want-to-read shelf.'],
+            ['title' => 'The House in the Cerulean Sea', 'authors' => ['TJ Klune'], 'isbn13' => '9781250217288', 'status' => 'want', 'owned' => true, 'pageCount' => 398, 'publishYear' => 2020, 'genres' => ['Fantasy'], 'description' => 'A sample waiting to be started.'],
             ['title' => 'Klara and the Sun', 'authors' => ['Kazuo Ishiguro'], 'isbn13' => '9780593318171', 'status' => 'want', 'pageCount' => 303, 'publishYear' => 2021, 'genres' => ['Fiction'], 'description' => 'A sample still on the list.'],
             ['title' => 'Station Eleven', 'authors' => ['Emily St. John Mandel'], 'isbn13' => '9780385353304', 'status' => 'want', 'pageCount' => 333, 'publishYear' => 2014, 'genres' => ['Fiction'], 'description' => 'A sample for the waiting shelf.'],
             ['title' => 'The Starless Sea', 'authors' => ['Erin Morgenstern'], 'isbn13' => '9780385541213', 'status' => 'want', 'pageCount' => 498, 'publishYear' => 2019, 'genres' => ['Fantasy'], 'description' => 'A longer sample, so its spine is wider.'],
@@ -623,6 +660,7 @@ final class Library
             'currentPage' => $row['current_page'] !== null ? (int) $row['current_page'] : null,
             'progressPercent' => $row['progress_percent'] !== null ? (float) $row['progress_percent'] : null,
             'readCount' => (int) $row['read_count'],
+            'owned' => (int) ($row['owned'] ?? 0) === 1,
             'importedReview' => $row['imported_review'],
             'tags' => $tags,
         ];
@@ -631,7 +669,7 @@ final class Library
     private static function requireRow(int $id): array
     {
         $stmt = Database::pdo()->prepare(
-            'SELECT b.*, e.status, e.rating, e.date_added, e.date_started, e.date_finished, e.current_page, e.progress_percent, e.read_count, e.imported_review, e.rating_updated_at
+            'SELECT b.*, e.status, e.rating, e.date_added, e.date_started, e.date_finished, e.current_page, e.progress_percent, e.read_count, e.owned, e.imported_review, e.rating_updated_at
              FROM books b JOIN library_entries e ON e.book_id = b.id WHERE b.id = ?'
         );
         $stmt->execute([$id]);
@@ -640,6 +678,14 @@ final class Library
             throw new HttpException(404, 'That book is not on your shelves.');
         }
         return $row;
+    }
+
+    private static function ownedFlag(mixed $value): int
+    {
+        if ($value === true || $value === 1 || $value === '1' || $value === 'true' || $value === 'yes') {
+            return 1;
+        }
+        return 0;
     }
 
     private static function tagsFor(array $ids): array

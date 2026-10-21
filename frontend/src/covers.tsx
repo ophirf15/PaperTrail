@@ -21,10 +21,27 @@ export function Cover({ title, authors, coverUrl }: { title: string; authors: st
   return <img className="cover" src={coverUrl} alt="" onError={() => setFailed(true)} />
 }
 
+export function copyPhrase(book: Pick<Book, 'owned'>): string {
+  return book.owned ? 'On your shelf' : 'Still to buy'
+}
+
+export function OwnedLamp({ book, compact = false }: { book: Book; compact?: boolean }) {
+  const word = book.status === 'want' ? (book.owned ? (compact ? 'Have' : 'On the shelf') : compact ? 'Buy' : 'To buy') : null
+  return (
+    <span className={`own-lamp${book.owned ? ' is-owned' : ' is-needed'}${compact ? ' is-compact' : ''}`}>
+      <span className="own-glow" aria-hidden="true" />
+      {word ? <span className="own-word">{word}</span> : null}
+    </span>
+  )
+}
+
 export function BookFace({ book, onOpen }: { book: Book; onOpen: (id: number) => void }) {
   return (
-    <button type="button" className="book-face" onClick={() => onOpen(book.id)} aria-label={`${book.title} by ${authorLine(book.authors)}`}>
-      <Cover title={book.title} authors={book.authors} coverUrl={book.coverUrl} />
+    <button type="button" className="book-face" onClick={() => onOpen(book.id)} aria-label={`${book.title} by ${authorLine(book.authors)}. ${copyPhrase(book)}`}>
+      <span className="cover-wrap">
+        <Cover title={book.title} authors={book.authors} coverUrl={book.coverUrl} />
+        <OwnedLamp book={book} />
+      </span>
       <span className="caption">
         <strong>{book.title}</strong>
         <em>{book.authors[0] ?? 'Unknown author'}</em>

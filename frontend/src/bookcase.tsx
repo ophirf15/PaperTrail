@@ -1,6 +1,6 @@
 import { GripVertical } from 'lucide-react'
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import { Cover } from './covers'
+import { Cover, OwnedLamp, copyPhrase } from './covers'
 import { authorLine, type Book, type ShelfArrange } from './types'
 
 export const ORNAMENTS = [
@@ -230,7 +230,7 @@ export function Bookcase({
                   )
                 }
                 const book = piece.book
-                const label = `${book.title} by ${authorLine(book.authors)}`
+                const label = `${book.title} by ${authorLine(book.authors)}. ${copyPhrase(book)}`
                 const dropClass = drop && dragId !== book.id ? (drop.beforeId === book.id ? ' is-drop' : drop.beforeId === null && book.id === books[books.length - 1]?.id ? ' is-drop-end' : '') : ''
                 return (
                   <div key={`book-${book.id}`} className={`shelf-book${dragId === book.id ? ' is-dragging' : ''}${dropClass}`} data-book-id={book.id}>
@@ -251,16 +251,18 @@ export function Bookcase({
                     {faceOut(book, style) ? (
                       <button type="button" className="shelf-cover" onClick={() => onOpen(book.id)} aria-label={label}>
                         <Cover title={book.title} authors={book.authors} coverUrl={book.coverUrl} />
+                        <OwnedLamp book={book} />
                       </button>
                     ) : (
                       <button
                         type="button"
-                        className="spine"
+                        className={`spine${book.owned ? ' is-owned' : ' is-needed'}`}
                         style={{ width: spineWidth(book), height: spineHeight(book.title), backgroundColor: cloth(book.title) }}
                         onClick={() => onOpen(book.id)}
                         aria-label={label}
                       >
-                        <span>{book.title}</span>
+                        <OwnedLamp book={book} compact />
+                        <span className="spine-title">{book.title}</span>
                       </button>
                     )}
                   </div>

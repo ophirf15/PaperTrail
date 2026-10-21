@@ -202,7 +202,7 @@ function settings_get(): array
         if ($row['key'] === 'theme' && in_array($row['value'], ['light', 'dark'], true)) {
             $settings['theme'] = $row['value'];
         }
-        if ($row['key'] === 'shelfView' && in_array($row['value'], ['gallery', 'shelf'], true)) {
+        if ($row['key'] === 'shelfView' && in_array($row['value'], ['gallery', 'shelf', 'ledger'], true)) {
             $settings['shelfView'] = $row['value'];
         }
         if ($row['key'] === 'shelfStyle' && in_array($row['value'], ['spines', 'mixed', 'covers'], true)) {
@@ -229,8 +229,8 @@ function settings_put(array $patch): array
         $stmt->execute(['theme', $patch['theme']]);
     }
     if (isset($patch['shelfView'])) {
-        if (!in_array($patch['shelfView'], ['gallery', 'shelf'], true)) {
-            throw new HttpException(400, 'Choose gallery or shelf.');
+        if (!in_array($patch['shelfView'], ['gallery', 'shelf', 'ledger'], true)) {
+            throw new HttpException(400, 'Choose gallery, shelf, or ledger.');
         }
         $stmt->execute(['shelfView', $patch['shelfView']]);
     }
