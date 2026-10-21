@@ -38,10 +38,14 @@ final class Transfer
         $token = bin2hex(random_bytes(16));
         $pdo = Database::pdo();
         $pdo->prepare('DELETE FROM import_staging WHERE expires_at < ?')->execute([Database::now()]);
+        $payload = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($payload === false) {
+            throw new HttpException(400, 'That file could not be read as text.');
+        }
         $pdo->prepare('INSERT INTO import_staging (token, payload_json, expires_at, created_at) VALUES (?, ?, ?, ?)')
             ->execute([
                 $token,
-                json_encode($rows),
+                $payload,
                 gmdate('Y-m-d\TH:i:s\Z', time() + 7200),
                 Database::now(),
             ]);
@@ -230,6 +234,9 @@ final class Transfer
     {
         if (str_starts_with($csv, "\xEF\xBB\xBF")) {
             $csv = substr($csv, 3);
+        }
+        if (!mb_check_encoding($csv, 'UTF-8')) {
+            $csv = mb_convert_encoding($csv, 'UTF-8', 'Windows-1252');
         }
         $handle = fopen('php://temp', 'r+');
         if ($handle === false) {

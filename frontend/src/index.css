@@ -176,6 +176,8 @@ img { max-width: 100%; display: block; }
 .mini-progress input[inputmode="numeric"] { width: 5.5rem; max-width: 5.5rem; flex: none; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.8rem; }
+.file-picker { position: relative; overflow: hidden; cursor: pointer; }
+.file-picker input { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 0; }
 .lede + .actions { margin-top: 0.2rem; margin-bottom: 1.35rem; }
 .install-checks { list-style: none; padding: 0; margin: 0 0 1.4rem; display: grid; gap: 0.4rem; }
 .install-checks li { position: relative; padding-left: 1.35rem; }

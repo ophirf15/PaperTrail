@@ -230,6 +230,17 @@ function ok(array $body, int $status = 200, ?string $token = null): array
     return $response;
 }
 
+function upload_failure_message(int $error): string
+{
+    return match ($error) {
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'That file is larger than this server allows.',
+        UPLOAD_ERR_PARTIAL => 'The upload stopped before the file finished.',
+        UPLOAD_ERR_NO_FILE => 'Choose a CSV file first.',
+        UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE, UPLOAD_ERR_EXTENSION => 'The server could not store the upload.',
+        default => 'The file could not be uploaded.',
+    };
+}
+
 function handle_http(): void
 {
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -256,8 +267,16 @@ function handle_http(): void
             }
             $body = $decoded;
         }
-    } elseif (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-        $upload = file_get_contents($_FILES['file']['tmp_name']);
+    } elseif (isset($_FILES['file']) && is_array($_FILES['file'])) {
+        $error = (int) ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error !== UPLOAD_ERR_OK) {
+            throw new HttpException(400, upload_failure_message($error));
+        }
+        $tmp = (string) ($_FILES['file']['tmp_name'] ?? '');
+        if ($tmp === '' || !is_uploaded_file($tmp)) {
+            throw new HttpException(400, 'Choose a CSV file first.');
+        }
+        $upload = file_get_contents($tmp);
         $uploadName = (string) ($_FILES['file']['name'] ?? 'import.csv');
         if ($upload === false) {
             throw new HttpException(400, 'Could not read the uploaded file.');

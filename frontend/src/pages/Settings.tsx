@@ -30,6 +30,9 @@ export function SettingsPage() {
   const [passwordError, setPasswordError] = useState('')
   const [goal, setGoal] = useState('24')
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [reading, setReading] = useState(false)
+  const [importError, setImportError] = useState('')
   const [policy, setPolicy] = useState('fill_empty')
   const [summary, setSummary] = useState<string>('')
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
@@ -163,20 +166,52 @@ export function SettingsPage() {
         </section>
         <section className="panel">
           <h2>Goodreads import</h2>
-          <p className="meta">Upload the CSV from Goodreads. Covers are looked up afterwards. Your journal, quotes, and people are kept.</p>
-          <input
-            className="field"
-            type="file"
-            accept=".csv,text/csv"
-            aria-label="Goodreads CSV"
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              if (!file) return
-              const form = new FormData()
-              form.set('file', file)
-              void api<Preview>('/api/import/goodreads/preview', { method: 'POST', form }).then(setPreview)
-            }}
-          />
+          <p className="meta">Choose the CSV from Goodreads, then upload it. Covers are looked up afterwards. Your journal, quotes, and people are kept.</p>
+          <div className="mini-progress">
+            <label className="btn secondary file-picker">
+              Choose CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                aria-label="Goodreads CSV"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null
+                  setCsvFile(file)
+                  setPreview(null)
+                  setSummary('')
+                  setImportError('')
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn"
+              disabled={csvFile === null || reading}
+              onClick={() => {
+                if (!csvFile) return
+                const form = new FormData()
+                form.set('file', csvFile)
+                setReading(true)
+                setImportError('')
+                void api<Preview>('/api/import/goodreads/preview', { method: 'POST', form })
+                  .then((next) => {
+                    setPreview(next)
+                    toast('File read. Review the books, then import.')
+                  })
+                  .catch((error: unknown) => {
+                    const message = error instanceof Error ? error.message : 'The CSV could not be read.'
+                    setPreview(null)
+                    setImportError(message)
+                    toast(message)
+                  })
+                  .finally(() => setReading(false))
+              }}
+            >
+              {reading ? 'Reading…' : 'Upload CSV'}
+            </button>
+          </div>
+          {csvFile && <p className="meta">{csvFile.name}</p>}
+          {importError && <p className="meta">{importError}</p>}
           {preview && (
             <div>
               <p>
@@ -205,11 +240,18 @@ export function SettingsPage() {
                   void api<{ imported: number; updated: number; skipped: number; failed: number }>('/api/import/goodreads/commit', {
                     method: 'POST',
                     json: { token: preview.token, policy },
-                  }).then((result) => {
-                    setSummary(`Imported ${result.imported}, updated ${result.updated}, skipped ${result.skipped}, failed ${result.failed}.`)
-                    setPreview(null)
-                    return refresh()
                   })
+                    .then((result) => {
+                      setSummary(`Imported ${result.imported}, updated ${result.updated}, skipped ${result.skipped}, failed ${result.failed}.`)
+                      setPreview(null)
+                      setCsvFile(null)
+                      return refresh()
+                    })
+                    .catch((error: unknown) => {
+                      const message = error instanceof Error ? error.message : 'The import did not finish.'
+                      setImportError(message)
+                      toast(message)
+                    })
                 }
               >
                 Import books

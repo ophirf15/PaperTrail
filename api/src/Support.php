@@ -525,6 +525,12 @@ function mysql_migration_sql(string $sql): string
     $sql = str_replace("source TEXT NOT NULL DEFAULT 'manual'", "source VARCHAR(40) NOT NULL DEFAULT 'manual'", $sql);
     $sql = str_replace("source TEXT NOT NULL DEFAULT 'user'", "source VARCHAR(40) NOT NULL DEFAULT 'user'", $sql);
     $sql = str_replace("kind TEXT NOT NULL DEFAULT 'journal'", "kind VARCHAR(40) NOT NULL DEFAULT 'journal'", $sql);
+    $sql = str_replace('payload_json TEXT NOT NULL', 'payload_json LONGTEXT NOT NULL', $sql);
+    $sql = str_replace(
+        "UPDATE import_staging SET payload_json = payload_json WHERE token = ''",
+        'ALTER TABLE import_staging MODIFY payload_json LONGTEXT NOT NULL',
+        $sql
+    );
     $sql = str_replace("TEXT NOT NULL DEFAULT '[]'", 'LONGTEXT NOT NULL', $sql);
     $sql = str_replace("TEXT NOT NULL DEFAULT ''", 'LONGTEXT NOT NULL', $sql);
     return $sql;
