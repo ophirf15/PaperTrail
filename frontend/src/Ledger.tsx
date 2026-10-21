@@ -73,6 +73,7 @@ export function Ledger({ books, onOpen }: { books: Book[]; onOpen: (id: number) 
   const toast = useToast()
   const tableRef = useRef<HTMLTableElement>(null)
   const rowsRef = useRef<Book[]>([])
+  const dragRef = useRef<(() => void) | null>(null)
   const [selected, setSelected] = useState<Set<number>>(() => new Set())
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'' | ReadingStatus>('')
@@ -99,6 +100,8 @@ export function Ledger({ books, onOpen }: { books: Book[]; onOpen: (id: number) 
     .slice()
     .sort((a, b) => compareBooks(a, b, sort) || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
   rowsRef.current = rows
+
+  useEffect(() => () => dragRef.current?.(), [])
 
   const chosen = rows.filter((book) => selected.has(book.id))
   const allSelected = rows.length > 0 && rows.every((book) => selected.has(book.id))
@@ -153,21 +156,50 @@ export function Ledger({ books, onOpen }: { books: Book[]; onOpen: (id: number) 
   }
 
   function beginFill(event: ReactPointerEvent<HTMLButtonElement>, column: Column, index: number) {
+    if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
-    const start: Fill = { column, from: index, to: index }
-    setFill(start)
-    const move = (pointer: PointerEvent) => {
-      if (pointer.clientY > window.innerHeight - 56) window.scrollBy(0, 18)
-      else if (pointer.clientY < 56) window.scrollBy(0, -18)
-      const next = indexAt(pointer.clientY)
+    dragRef.current?.()
+    const pointerId = event.pointerId
+    const pointerType = event.pointerType
+    const shield = document.createElement('div')
+    shield.className = 'sheet-drag-shield'
+    shield.setAttribute('aria-hidden', 'true')
+    document.body.appendChild(shield)
+    try {
+      shield.setPointerCapture(pointerId)
+    } catch {
+      // The pointer is still followed from the document listeners below.
+    }
+    let finished = false
+    setFill({ column, from: index, to: index })
+
+    const track = (clientY: number) => {
+      if (clientY > window.innerHeight - 56) window.scrollBy(0, 18)
+      else if (clientY < 56) window.scrollBy(0, -18)
+      const next = indexAt(clientY)
       if (next == null) return
       setFill({ column, from: index, to: next })
     }
-    const up = (pointer: PointerEvent) => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      const next = indexAt(pointer.clientY) ?? index
+    const detach = () => {
+      shield.removeEventListener('pointermove', onPointerMove)
+      shield.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('mouseup', onMouseUp, true)
+      document.removeEventListener('keydown', onKey, true)
+      shield.remove()
+      if (dragRef.current === stop) dragRef.current = null
+    }
+    const stop = () => {
+      finished = true
+      detach()
+      setFill(null)
+    }
+    const commit = (clientY: number) => {
+      if (finished) return
+      finished = true
+      detach()
+      const next = indexAt(clientY) ?? index
       setFill(null)
       const list = rowsRef.current
       const source = list[index]
@@ -180,8 +212,30 @@ export function Ledger({ books, onOpen }: { books: Book[]; onOpen: (id: number) 
         .then((count) => toast(`Filled ${count} ${count === 1 ? 'cell' : 'cells'}.`))
         .catch((error: unknown) => toast(error instanceof ApiError ? error.message : 'That column could not be filled.'))
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    // macOS delivers pointerup while the button is still held, once the pointer
+    // crosses a select in a later row. mouseup is the release that should fill.
+    const onPointerMove = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId || finished) return
+      if (pointer.cancelable) pointer.preventDefault()
+      track(pointer.clientY)
+    }
+    const onPointerUp = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== pointerId || pointer.pointerType === 'mouse') return
+      commit(pointer.clientY)
+    }
+    const onMouseUp = (mouse: MouseEvent) => {
+      if (pointerType !== 'mouse' || mouse.button !== 0) return
+      commit(mouse.clientY)
+    }
+    const onKey = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === 'Escape') stop()
+    }
+    shield.addEventListener('pointermove', onPointerMove)
+    shield.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('mouseup', onMouseUp, true)
+    document.addEventListener('keydown', onKey, true)
+    dragRef.current = stop
   }
 
   async function applyBulk() {
@@ -232,7 +286,9 @@ export function Ledger({ books, onOpen }: { books: Book[]; onOpen: (id: number) 
         </select>
         <span className="meta">{rows.length} shown</span>
       </div>
-      <p className="meta sheet-hint">Drag the corner of a cell down the column to copy it. Click a heading to sort.</p>
+      <p className="meta sheet-hint">
+        {fill ? 'Release to copy the cell down the highlighted rows.' : 'Drag the corner of a cell down the column to copy it. Click a heading to sort.'}
+      </p>
       {chosen.length > 0 && (
         <form
           className="sheet-bulk"
@@ -411,6 +467,7 @@ function Cell({
         type="button"
         className="sheet-fill"
         aria-label={`Fill ${column} down from ${book.title}`}
+        onMouseDown={(event) => event.preventDefault()}
         onPointerDown={(event) => {
           const row = event.currentTarget.closest('tr')
           const index = Number(row?.getAttribute('data-index') ?? '-1')

@@ -11,6 +11,7 @@ type Options = {
   method?: string
   json?: unknown
   form?: FormData
+  signal?: AbortSignal
 }
 
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
@@ -22,7 +23,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
   } else if (options.form) {
     body = options.form
   }
-  const response = await fetch(path, { method: options.method ?? 'GET', headers, body, credentials: 'same-origin' })
+  const response = await fetch(path, { method: options.method ?? 'GET', headers, body, credentials: 'same-origin', signal: options.signal })
   if (response.status === 401 && path !== '/api/login' && path !== '/api/me' && path !== '/api/setup-status') {
     window.dispatchEvent(new Event('pt-unauthorized'))
   }

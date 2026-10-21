@@ -171,6 +171,9 @@ img { max-width: 100%; display: block; }
   margin: 0.55rem 0;
 }
 .progress span { display: block; height: 100%; background: var(--sage); }
+.cover-progress { height: 10px; }
+.cover-progress span { transition: width 0.3s ease; }
+.cover-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .mini-progress { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
 .mini-progress input { width: 16rem; max-width: 100%; flex: 1 1 12rem; }
 .mini-progress input[inputmode="numeric"] { width: 5.5rem; max-width: 5.5rem; flex: none; }
@@ -193,6 +196,8 @@ img { max-width: 100%; display: block; }
   min-height: 44px;
 }
 .btn { padding: 0.55rem 1.05rem; background: var(--sage); color: var(--on-sage); font-weight: 600; }
+.btn:disabled { opacity: 0.62; }
+.btn.is-busy { cursor: progress; }
 .btn.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
 .btn.danger { background: transparent; color: var(--rose); border: 1px solid color-mix(in srgb, var(--rose) 45%, var(--line)); }
 .quiet { padding: 0.4rem 0.55rem; color: var(--sage); font-weight: 600; }
@@ -787,9 +792,11 @@ label.stack { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.
   border: 1px solid var(--paper);
   background: var(--sage);
   cursor: ns-resize;
+  touch-action: none;
   z-index: 2;
   opacity: 0;
 }
+.sheet-drag-shield { position: fixed; inset: 0; z-index: 70; cursor: ns-resize; touch-action: none; background: transparent; }
 .sheet-cell:hover .sheet-fill, .sheet-cell:focus-within .sheet-fill, .sheet-cell.is-active .sheet-fill { opacity: 1; }
 .sheet-book { display: flex; align-items: center; gap: 0.35rem; padding: 0 0.3rem; min-width: 0; text-align: left; }
 .sheet-thumb-hit { position: relative; flex: none; display: inline-flex; }

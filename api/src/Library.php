@@ -360,9 +360,11 @@ final class Library
         if ($hit === []) {
             return self::get($id);
         }
-        try {
-            $hit = (new OpenLibrary())->hydrate($hit);
-        } catch (\Throwable) {
+        if (!$coversOnly) {
+            try {
+                $hit = (new OpenLibrary())->hydrate($hit);
+            } catch (\Throwable) {
+            }
         }
         $sets = [];
         $params = [];
@@ -401,31 +403,52 @@ final class Library
         return self::get($id);
     }
 
-    public static function refreshMissing(int $limit = 20): array
+    public static function missingCoverIds(int $afterId, int $limit): array
     {
-        $stmt = Database::pdo()->prepare("SELECT id FROM books WHERE cover_url IS NULL OR cover_url = '' ORDER BY id ASC LIMIT ?");
-        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt = Database::pdo()->prepare(
+            "SELECT id FROM books WHERE (cover_url IS NULL OR cover_url = '') AND id > ? ORDER BY id ASC LIMIT ?"
+        );
+        $stmt->bindValue(1, max(0, $afterId), PDO::PARAM_INT);
+        $stmt->bindValue(2, max(0, $limit), PDO::PARAM_INT);
         $stmt->execute();
+        $ids = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            $ids[] = (int) $id;
+        }
+        return $ids;
+    }
+
+    public static function refreshMissing(int $limit = 8, int $afterId = 0): array
+    {
+        $limit = max(1, min(8, $limit));
+        $afterId = max(0, $afterId);
+        $ids = self::missingCoverIds($afterId, $limit);
         $updated = 0;
-        $checked = 0;
-        foreach ($stmt->fetchAll() as $row) {
-            $checked++;
+        $lastId = $afterId;
+        foreach ($ids as $id) {
+            $lastId = $id;
             $before = Database::pdo()->prepare('SELECT cover_url FROM books WHERE id = ?');
-            $before->execute([(int) $row['id']]);
+            $before->execute([$id]);
             $old = $before->fetchColumn();
             try {
-                self::refresh((int) $row['id'], true);
+                self::refresh($id, true);
             } catch (\Throwable) {
                 continue;
             }
             $after = Database::pdo()->prepare('SELECT cover_url FROM books WHERE id = ?');
-            $after->execute([(int) $row['id']]);
+            $after->execute([$id]);
             if ($after->fetchColumn() && !$old) {
                 $updated++;
             }
         }
         $remain = (int) Database::pdo()->query("SELECT COUNT(*) FROM books WHERE cover_url IS NULL OR cover_url = ''")->fetchColumn();
-        return ['checked' => $checked, 'updated' => $updated, 'remaining' => $remain];
+        return [
+            'checked' => count($ids),
+            'updated' => $updated,
+            'remaining' => $remain,
+            'lastId' => $lastId,
+            'exhausted' => count($ids) < $limit,
+        ];
     }
 
     public static function seedSamples(): array

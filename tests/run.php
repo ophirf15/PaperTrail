@@ -263,6 +263,16 @@ check($badArrange['status'] === 400, 'unknown arrangements are refused');
 $badOrder = call('PUT', '/settings', ['shelfOrder' => '1,nope'], $token);
 check($badOrder['status'] === 400, 'shelf order must be book ids');
 
+$cursorA = call('POST', '/books', ['status' => 'want', 'title' => 'Cursor Alpha', 'authors' => ['Ada']], $token);
+$cursorB = call('POST', '/books', ['status' => 'want', 'title' => 'Cursor Beta', 'authors' => ['Bea']], $token);
+check($cursorA['status'] === 201 && $cursorA['body']['coverUrl'] === null, 'a book can be saved without a cover');
+$alpha = (int) $cursorA['body']['id'];
+$beta = (int) $cursorB['body']['id'];
+$nextIds = PaperTrail\Library::missingCoverIds($alpha, 20);
+check(!in_array($alpha, $nextIds, true) && in_array($beta, $nextIds, true), 'cover lookup moves past books it already tried');
+$laterIds = PaperTrail\Library::missingCoverIds($beta, 20);
+check(!in_array($beta, $laterIds, true), 'cover lookup stops at the end of the missing list');
+
 @unlink($db);
 echo $failures === 0 ? "\nAll tests passed.\n" : "\n{$failures} failed.\n";
 exit($failures === 0 ? 0 : 1);

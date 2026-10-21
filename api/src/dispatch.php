@@ -98,7 +98,8 @@ function dispatch(string $method, string $path, array $body = [], array $query =
         return ok(['ok' => true]);
     }
     if ($method === 'POST' && $path === '/metadata/refresh-missing') {
-        return ok(Library::refreshMissing());
+        $afterId = (int) ($body['afterId'] ?? 0);
+        return ok(Library::refreshMissing(8, max(0, $afterId)));
     }
     if ($method === 'GET' && $path === '/timeline') {
         return ok(Journal::timeline($query));

@@ -1,12 +1,72 @@
-import { useEffect, useState } from 'react'
-import { api } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import { ApiError, api } from '../api'
 import { useAuth, useLibrary, useToast } from '../state'
+import { assertNever } from '../types'
 
 type Preview = {
   token: string
   counts: { total: number; new: number; duplicates: number; invalid: number }
   samples: { title: string; authors: string[]; status: string; rating: number | null; existing: boolean }[]
   mappings: Record<string, string>
+}
+
+type CoverPhase = 'idle' | 'run' | 'wait' | 'done' | 'timeout' | 'stopped'
+
+type CoverLookup = {
+  phase: CoverPhase
+  total: number
+  remaining: number
+  waitLeft: number
+}
+
+type CoverBatch = {
+  checked: number
+  updated: number
+  remaining: number
+  lastId: number
+  exhausted: boolean
+}
+
+const COVER_WAIT_MS = 10_000
+const COVER_LIMIT_MS = 5 * 60 * 1000
+
+function missingCoverSentence(count: number): string {
+  return count === 1 ? '1 cover is still missing.' : `${count} covers are still missing.`
+}
+
+function coverMessage(missingNow: number | null, lookup: CoverLookup): string {
+  if (lookup.phase === 'idle') {
+    if (missingNow == null) return 'Checking which covers are missing.'
+    return missingNow === 0 ? 'Every book has a cover.' : missingCoverSentence(missingNow)
+  }
+  switch (lookup.phase) {
+    case 'run':
+      return `Looking up covers. ${missingCoverSentence(lookup.remaining)}`
+    case 'wait':
+      return `Pausing between lookups. ${missingCoverSentence(lookup.remaining)}`
+    case 'done':
+      return 'Every book has a cover.'
+    case 'timeout':
+      return `Stopped after 5 minutes. ${missingCoverSentence(lookup.remaining)}`
+    case 'stopped':
+      return `Stopped. ${missingCoverSentence(lookup.remaining)}`
+    default:
+      return assertNever(lookup.phase)
+  }
+}
+
+function pause(ms: number, shouldStop: () => boolean, onTick: (seconds: number) => void): Promise<void> {
+  const end = Date.now() + ms
+  return new Promise((resolve) => {
+    const timer = window.setInterval(() => {
+      const left = Math.max(0, end - Date.now())
+      onTick(Math.ceil(left / 1000))
+      if (left === 0 || shouldStop()) {
+        window.clearInterval(timer)
+        resolve()
+      }
+    }, 200)
+  })
 }
 
 type UpdateInfo = {
@@ -21,7 +81,7 @@ type UpdateInfo = {
 
 export function SettingsPage() {
   const { user, settings, saveSettings, setDisplayName, changePassword, logout } = useAuth()
-  const { refresh } = useLibrary()
+  const { books, refresh } = useLibrary()
   const toast = useToast()
   const [name, setName] = useState(user?.displayName ?? '')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -37,8 +97,20 @@ export function SettingsPage() {
   const [summary, setSummary] = useState<string>('')
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [installing, setInstalling] = useState(false)
+  const [lookup, setLookup] = useState<CoverLookup>({ phase: 'idle', total: 0, remaining: 0, waitLeft: 0 })
+  const coverRun = useRef(false)
+  const coverStop = useRef(false)
+  const alive = useRef(true)
   const [errors, setErrors] = useState<{ id: number; message: string; createdAt: string }[]>([])
   const year = new Date().getFullYear()
+
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+      coverStop.current = true
+    }
+  }, [])
 
   useEffect(() => {
     void api<{ target: number | null }>(`/api/goals/${year}`).then((row) => {
@@ -47,6 +119,90 @@ export function SettingsPage() {
     void api<UpdateInfo>('/api/updates').then(setUpdate).catch(() => setUpdate({ configured: false, current: '' }))
     void api<{ id: number; message: string; createdAt: string }[]>('/api/errors').then(setErrors).catch(() => setErrors([]))
   }, [year])
+
+  const missingNow = books ? books.filter((book) => !book.coverUrl).length : null
+  const lookingUp = lookup.phase === 'run' || lookup.phase === 'wait'
+
+  async function lookupCovers() {
+    if (coverRun.current || missingNow == null || missingNow === 0) return
+    coverRun.current = true
+    coverStop.current = false
+    const deadline = Date.now() + COVER_LIMIT_MS
+    let afterId = 0
+    let total = missingNow
+    let remaining = missingNow
+    let phase: CoverPhase = 'run'
+    let failed = false
+    const controller = new AbortController()
+    const stopWatch = window.setInterval(() => {
+      if (coverStop.current) controller.abort()
+    }, 200)
+    setLookup({ phase: 'run', total, remaining, waitLeft: 0 })
+    try {
+      while (!coverStop.current && Date.now() < deadline) {
+        let batch: CoverBatch
+        try {
+          batch = await api<CoverBatch>('/api/metadata/refresh-missing', { method: 'POST', json: { afterId }, signal: controller.signal })
+        } catch (error) {
+          if (!alive.current || coverStop.current || (error instanceof Error && error.name === 'AbortError')) break
+          if (error instanceof ApiError && error.status === 401) {
+            failed = true
+            break
+          }
+          if (Date.now() + COVER_WAIT_MS >= deadline) {
+            phase = 'timeout'
+            break
+          }
+          phase = 'wait'
+          setLookup({ phase, total, remaining, waitLeft: COVER_WAIT_MS / 1000 })
+          await pause(COVER_WAIT_MS, () => coverStop.current, (seconds) => {
+            if (alive.current) setLookup({ phase: 'wait', total, remaining, waitLeft: seconds })
+          })
+          continue
+        }
+        if (!alive.current || coverStop.current) break
+        total = Math.max(total, batch.remaining + batch.updated)
+        remaining = batch.remaining
+        phase = 'run'
+        setLookup({ phase, total, remaining, waitLeft: 0 })
+        try {
+          await refresh()
+        } catch {
+          // The batch is already saved. The shelves catch up on the next pass.
+        }
+        if (remaining === 0) {
+          phase = 'done'
+          break
+        }
+        if (Date.now() + COVER_WAIT_MS >= deadline) {
+          phase = 'timeout'
+          break
+        }
+        afterId = batch.exhausted ? 0 : batch.lastId
+        phase = 'wait'
+        setLookup({ phase, total, remaining, waitLeft: COVER_WAIT_MS / 1000 })
+        await pause(COVER_WAIT_MS, () => coverStop.current, (seconds) => {
+          if (alive.current) setLookup({ phase: 'wait', total, remaining, waitLeft: seconds })
+        })
+      }
+      if (!alive.current) return
+      if (coverStop.current && phase !== 'done') phase = 'stopped'
+      else if (failed) phase = 'stopped'
+      else if (phase !== 'done' && remaining > 0) phase = 'timeout'
+      setLookup({ phase, total, remaining, waitLeft: 0 })
+      if (phase === 'done') toast('Every book has a cover.')
+      else if (phase === 'timeout') toast(`Stopped after 5 minutes. ${missingCoverSentence(remaining)}`)
+      else if (failed) toast(`Cover lookup did not finish. ${missingCoverSentence(remaining)}`)
+      else toast(`Stopped. ${missingCoverSentence(remaining)}`)
+    } catch {
+      if (!alive.current) return
+      setLookup({ phase: 'stopped', total, remaining, waitLeft: 0 })
+      toast(`Cover lookup did not finish. ${missingCoverSentence(remaining)}`)
+    } finally {
+      window.clearInterval(stopWatch)
+      coverRun.current = false
+    }
+  }
 
   return (
     <div className="page">
@@ -294,18 +450,38 @@ export function SettingsPage() {
         </section>
         <section className="panel">
           <h2>Missing covers</h2>
-          <button
-            type="button"
-            className="btn secondary"
-            onClick={() =>
-              void api<{ updated: number; remaining: number }>('/api/metadata/refresh-missing', { method: 'POST', json: {} }).then((result) => {
-                toast(`Filled ${result.updated} covers. ${result.remaining} still without one.`)
-                return refresh()
-              })
-            }
-          >
-            Look up missing covers
-          </button>
+          <p className="meta" aria-live="polite">
+            {coverMessage(missingNow, lookup)}
+          </p>
+          {lookup.total > 0 && lookup.phase !== 'idle' && (
+            <div
+              className="progress cover-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={lookup.total}
+              aria-valuenow={Math.max(0, lookup.total - lookup.remaining)}
+              aria-label="Cover lookup"
+            >
+              <span style={{ width: `${Math.min(100, Math.round(((lookup.total - lookup.remaining) / lookup.total) * 100))}%` }} />
+            </div>
+          )}
+          {lookup.phase === 'wait' && <p className="meta">Next lookup in {lookup.waitLeft} {lookup.waitLeft === 1 ? 'second' : 'seconds'}.</p>}
+          <div className="cover-actions">
+            <button
+              type="button"
+              className={`btn secondary${lookingUp ? ' is-busy' : ''}`}
+              disabled={lookingUp || missingNow == null || missingNow === 0}
+              aria-busy={lookingUp}
+              onClick={() => void lookupCovers()}
+            >
+              {lookingUp ? 'Looking up covers…' : 'Look up missing covers'}
+            </button>
+            {lookingUp && (
+              <button type="button" className="btn secondary" onClick={() => { coverStop.current = true }}>
+                Stop
+              </button>
+            )}
+          </div>
         </section>
         <section className="panel">
           <h2>Updates</h2>
