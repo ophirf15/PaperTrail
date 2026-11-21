@@ -12,6 +12,37 @@ final class OpenLibrary
         if (strlen($query) < 2) {
             throw new HttpException(400, 'Type a little more of the title, author, or ISBN.');
         }
+        $hits = $this->collect($query);
+        $loose = self::loosen($query);
+        if ($hits !== [] || $loose === $query) {
+            return $hits;
+        }
+        return $this->collect($loose);
+    }
+
+    public static function loosen(string $query): string
+    {
+        $compact = strtolower(str_replace(['-', ' '], '', $query));
+        if (str_starts_with($compact, 'isbn:')) {
+            $compact = substr($compact, 5);
+        }
+        if (preg_match('/^[0-9]{9}[0-9x]$/', $compact) || preg_match('/^[0-9]{13}$/', $compact)) {
+            return $query;
+        }
+        $words = preg_split('/\s+/', trim($query)) ?: [];
+        $parts = [];
+        foreach ($words as $word) {
+            if ($word === '') {
+                continue;
+            }
+            $parts[] = preg_match("/^[A-Za-z][A-Za-z'-]{3,}$/", $word) ? $word . '~1' : $word;
+        }
+        $loose = implode(' ', $parts);
+        return $loose === '' ? $query : $loose;
+    }
+
+    private function collect(string $query): array
+    {
         $url = 'https://openlibrary.org/search.json?' . http_build_query([
             'q' => $query,
             'limit' => 12,

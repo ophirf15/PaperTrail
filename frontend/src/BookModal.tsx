@@ -27,16 +27,21 @@ function asTab(value: string | null): Tab {
 
 export function BookModal({ bookId, initialTab, onClose }: { bookId: string | null; initialTab: string | null; onClose: () => void }) {
   const [detail, setDetail] = useState<BookDetail | null>(null)
+  const [forId, setForId] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('overview')
   const [error, setError] = useState('')
-  const { upsert, remove } = useLibrary()
+  const { books, upsert, remove } = useLibrary()
   const toast = useToast()
+  const preview = books?.find((book) => String(book.id) === bookId) ?? null
+  if (bookId !== forId) {
+    setForId(bookId)
+    setDetail(null)
+    setError('')
+  }
 
   useEffect(() => {
     if (!bookId) return
     let alive = true
-    setDetail(null)
-    setError('')
     setTab(asTab(initialTab))
     api<BookDetail>(`/api/books/${bookId}`)
       .then((book) => {
@@ -60,9 +65,9 @@ export function BookModal({ bookId, initialTab, onClose }: { bookId: string | nu
   }
 
   return (
-    <Dialog open={bookId != null} title={detail?.title ?? 'Book'} onClose={onClose}>
+    <Dialog open={bookId != null} title={detail?.title ?? preview?.title ?? 'Opening…'} onClose={onClose}>
       {error && <p style={{ color: 'var(--rose)' }}>{error}</p>}
-      {!detail && !error && <div className="skeleton" style={{ height: 280 }} />}
+      {!detail && !error && <BookSkeleton />}
       {detail && (
         <div className="book-modal">
           <div className="modal-cover">
@@ -99,6 +104,22 @@ export function BookModal({ bookId, initialTab, onClose }: { bookId: string | nu
         </div>
       )}
     </Dialog>
+  )
+}
+
+function BookSkeleton() {
+  return (
+    <div className="book-modal" aria-busy="true" aria-live="polite">
+      <span className="sr">Opening this book</span>
+      <div className="skeleton book-skel-cover" />
+      <div className="book-skel-copy">
+        <span className="skeleton hit-line" />
+        <span className="skeleton hit-line short" />
+        <span className="skeleton hit-line tall" />
+        <span className="skeleton hit-line" />
+        <span className="skeleton hit-line short" />
+      </div>
+    </div>
   )
 }
 
@@ -184,6 +205,17 @@ function Overview({
         <button className="btn secondary" type="submit">
           Update
         </button>
+        {book.status !== 'finished' && (
+          <button
+            className="btn"
+            type="button"
+            onClick={() =>
+              void onEntry({ status: 'finished', dateFinished: book.dateFinished ?? new Date().toISOString().slice(0, 10) }).then(() => toast('Marked as finished.'))
+            }
+          >
+            Finished
+          </button>
+        )}
       </form>
       <div className="section-head">
         <h3>Your rating</h3>

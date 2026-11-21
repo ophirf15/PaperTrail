@@ -262,6 +262,8 @@ $badArrange = call('PUT', '/settings', ['shelfArrange' => 'color'], $token);
 check($badArrange['status'] === 400, 'unknown arrangements are refused');
 $badOrder = call('PUT', '/settings', ['shelfOrder' => '1,nope'], $token);
 check($badOrder['status'] === 400, 'shelf order must be book ids');
+check(PaperTrail\OpenLibrary::loosen('the left hand of darknes') === 'the left~1 hand~1 of darknes~1', 'a mistyped title is searched loosely');
+check(PaperTrail\OpenLibrary::loosen('9780141439518') === '9780141439518', 'an isbn stays an exact search');
 
 $cursorA = call('POST', '/books', ['status' => 'want', 'title' => 'Cursor Alpha', 'authors' => ['Ada']], $token);
 $cursorB = call('POST', '/books', ['status' => 'want', 'title' => 'Cursor Beta', 'authors' => ['Bea']], $token);

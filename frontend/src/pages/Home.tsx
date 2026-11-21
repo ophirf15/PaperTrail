@@ -174,6 +174,22 @@ function QuickPage({ book, onSave, toast }: { book: Book; onSave: (book: Book) =
       <button className="btn secondary" type="submit">
         Save
       </button>
+      <button
+        className="btn"
+        type="button"
+        onClick={() =>
+          void api<Book>(`/api/books/${book.id}/entry`, {
+            method: 'PATCH',
+            json: { status: 'finished', dateFinished: book.dateFinished ?? new Date().toISOString().slice(0, 10) },
+          }).then((next) => {
+            onSave(next)
+            toast('Marked as finished.')
+            if (next.goalReached) window.dispatchEvent(new CustomEvent('pt-goal', { detail: next }))
+          })
+        }
+      >
+        Finished
+      </button>
     </form>
   )
 }

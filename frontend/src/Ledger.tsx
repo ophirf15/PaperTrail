@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from 'react-dom'
 import { ApiError, api } from './api'
 import { useLibrary, useToast } from './state'
+import { matchesLoose } from './search'
 import { STATUS_LABEL, assertNever, authorLine, type Book, type ReadingStatus } from './types'
 
 const RATINGS = ['0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5']
@@ -95,7 +96,7 @@ export function Ledger({ books, onOpen }: { books: Book[]; onOpen: (id: number) 
       if (copy === 'yes' && !book.owned) return false
       if (copy === 'no' && book.owned) return false
       if (!needle) return true
-      return book.title.toLowerCase().includes(needle) || book.authors.some((author) => author.toLowerCase().includes(needle))
+      return matchesLoose([book.title, ...book.authors], needle)
     })
     .slice()
     .sort((a, b) => compareBooks(a, b, sort) || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))

@@ -6,6 +6,22 @@ import { STATUS_LABEL, type Book, type ReadingStatus, type SearchHit } from './t
 import { Cover } from './covers'
 import { Dialog } from './ui'
 
+function SearchSkeleton() {
+  return (
+    <ul className="person-list" aria-busy="true" aria-label="Searching the catalog">
+      {[0, 1, 2].map((row) => (
+        <li key={row} className="hit-skeleton">
+          <span className="skeleton hit-cover" />
+          <span>
+            <span className="skeleton hit-line" />
+            <span className="skeleton hit-line short" />
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function AddBook({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[] | null>(null)
@@ -16,6 +32,8 @@ export function AddBook({ open, onClose }: { open: boolean; onClose: () => void 
   const [pages, setPages] = useState('')
   const [year, setYear] = useState('')
   const [busy, setBusy] = useState(false)
+  const [picked, setPicked] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
   const { upsert } = useLibrary()
   const toast = useToast()
@@ -26,20 +44,36 @@ export function AddBook({ open, onClose }: { open: boolean; onClose: () => void 
     setQuery('')
     setHits(null)
     setManual(false)
+    setPicked(null)
+    setSearching(false)
     setError('')
   }, [open])
 
   useEffect(() => {
-    if (query.trim().length < 2) {
+    const q = query.trim()
+    if (q.length < 2) {
       setHits(null)
+      setSearching(false)
       return
     }
+    setSearching(true)
+    let cancelled = false
     const timer = window.setTimeout(() => {
-      api<SearchHit[]>(`/api/search?q=${encodeURIComponent(query.trim())}`)
-        .then(setHits)
-        .catch(() => setHits([]))
+      api<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`)
+        .then((next) => {
+          if (!cancelled) setHits(next)
+        })
+        .catch(() => {
+          if (!cancelled) setHits([])
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false)
+        })
     }, 280)
-    return () => window.clearTimeout(timer)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [query])
 
   async function place(payload: { hit?: SearchHit; title?: string; authors?: string[]; pageCount?: number; publishYear?: number }) {
@@ -77,29 +111,50 @@ export function AddBook({ open, onClose }: { open: boolean; onClose: () => void 
         </label>
       )}
       {error && <p style={{ color: 'var(--rose)' }}>{error}</p>}
-      {!manual && hits && hits.length === 0 && <p className="meta">No matches yet. You can enter the book yourself.</p>}
-      {!manual && hits && hits.length > 0 && (
+      {!manual && searching && <SearchSkeleton />}
+      {!manual && !searching && hits && hits.length === 0 && <p className="meta">No matches yet. You can enter the book yourself.</p>}
+      {!manual && !searching && hits && hits.length > 0 && (
         <ul className="person-list">
-          {hits.map((hit) => (
-            <li key={`${hit.workKey}-${hit.title}`}>
-              <button
-                type="button"
-                className="book-face"
-                style={{ display: 'grid', gridTemplateColumns: '48px 1fr', gap: '0.8rem', alignItems: 'center', width: '100%', padding: '0.55rem 0' }}
-                disabled={busy}
-                onClick={() => void place({ hit })}
-              >
-                <Cover title={hit.title} authors={hit.authors} coverUrl={hit.coverUrl} />
-                <span className="caption">
-                  <strong>{hit.title}</strong>
-                  <em>
-                    {hit.authors[0] ?? 'Unknown author'}
-                    {hit.publishYear ? ` · ${hit.publishYear}` : ''}
-                  </em>
-                </span>
-              </button>
-            </li>
-          ))}
+          {hits.map((hit) => {
+            const key = `${hit.workKey}-${hit.title}`
+            const pending = picked === key
+            return (
+              <li key={key}>
+                <button
+                  type="button"
+                  className="book-face hit-choice"
+                  aria-busy={pending}
+                  disabled={busy}
+                  onClick={() => {
+                    if (busy) return
+                    setPicked(key)
+                    void place({ hit }).finally(() => setPicked(null))
+                  }}
+                >
+                  {pending ? (
+                    <span className="hit-skeleton">
+                      <span className="skeleton hit-cover" />
+                      <span>
+                        <span className="skeleton hit-line" />
+                        <span className="skeleton hit-line short" />
+                      </span>
+                    </span>
+                  ) : (
+                    <>
+                      <Cover title={hit.title} authors={hit.authors} coverUrl={hit.coverUrl} />
+                      <span className="caption">
+                        <strong>{hit.title}</strong>
+                        <em>
+                          {hit.authors[0] ?? 'Unknown author'}
+                          {hit.publishYear ? ` · ${hit.publishYear}` : ''}
+                        </em>
+                      </span>
+                    </>
+                  )}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
       {manual ? (

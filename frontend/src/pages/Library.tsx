@@ -7,6 +7,7 @@ import { Ledger } from '../Ledger'
 import { useJournalNav } from '../shell'
 import { useAuth, useLibrary, useToast } from '../state'
 import { STATUS_LABEL, type Book, type ReadingStatus, type Settings, type ShelfArrange } from '../types'
+import { matchesLoose } from '../search'
 import { EmptyState, SkeletonRow } from '../ui'
 
 type Filter = 'all' | ReadingStatus
@@ -84,11 +85,7 @@ export function LibraryPage() {
       if (!matchesCopy(book, copy)) return false
       if (genre !== 'all' && !book.genres.some((item) => item.toLowerCase() === genre.toLowerCase())) return false
       if (!needle) return true
-      return (
-        book.title.toLowerCase().includes(needle) ||
-        book.authors.some((author) => author.toLowerCase().includes(needle)) ||
-        (book.isbn13 ?? '').includes(needle)
-      )
+      return matchesLoose([book.title, ...book.authors, book.isbn13 ?? '', book.isbn10 ?? ''], needle)
     })
     return arrangeBooks(next, arrangement, orderIds)
   }, [books, filter, copy, genre, query, arrangement, orderIds])
